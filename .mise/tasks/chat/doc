@@ -2,4 +2,9 @@
 #MISE description="Chat interactif avec l'agent documentation (gemma4:26b-a4b-it-q8_0)"
 set -euo pipefail
 REPO_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+MODEL="${GEMMA4_DOC_MODEL:-gemma4:26b-a4b-it-q8_0}"
+
+source "$REPO_DIR/scripts/ensure-model.sh"
+_ensure_model "$MODEL" || exit 1
+
 exec python3 "$REPO_DIR/scripts/chat.py" doc

@@ -4,8 +4,10 @@ set -euo pipefail
 
 TASK="${1:-}"
 WORKSPACE="${2:-.}"
-HARNESS_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}/agent-harness"
+REPO_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+HARNESS_DIR="$REPO_DIR/agent-harness"
 PROFILE="$HARNESS_DIR/config/profiles/gemma4-coding.yaml"
+MODEL="${GEMMA4_CODING_MODEL:-gemma4:26b-a4b-it-q8_0}"
 
 if [ -z "$TASK" ]; then
     echo "Usage: mise run agent:coding -- \"<tâche>\" [workspace]"
@@ -15,22 +17,20 @@ if [ -z "$TASK" ]; then
     echo "  mise run agent:coding -- \"Trouve et corrige les bugs\" /chemin/projet"
     echo ""
     echo "Profil : $PROFILE"
-    echo "Modèle : gemma4:26b-a4b-it-q8_0 (dense, lent mais précis)"
+    echo "Modèle : $MODEL"
     exit 1
 fi
 
-# Décharger les autres modèles
-curl -sf http://localhost:11434/api/ps 2>/dev/null | python3 -c "
-import sys,json
-d=json.load(sys.stdin)
-for m in d.get('models',[]):
-    if m['name'] != 'gemma4:26b-a4b-it-q8_0':
-        import urllib.request
-        req = urllib.request.Request('http://localhost:11434/api/generate',
-            data=json.dumps({'model':m['name'],'keep_alive':0}).encode(),
-            headers={'Content-Type':'application/json'})
-        urllib.request.urlopen(req, timeout=5)
-" 2>/dev/null || true
+# Vérifier le harness
+if [ ! -f "$HARNESS_DIR/.venv/bin/harness" ]; then
+    echo "[ERREUR] agent-harness non installé"
+    echo "Lancez : mise run agent:setup"
+    exit 1
+fi
+
+# Vérifier et précharger le modèle
+source "$REPO_DIR/scripts/ensure-model.sh"
+_ensure_model "$MODEL" || exit 1
 
 # Lancer le harness
 exec "$HARNESS_DIR/.venv/bin/harness" run \
