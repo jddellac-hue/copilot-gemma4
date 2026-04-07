@@ -18,7 +18,7 @@ FORCE="${1:-}"
 
 if [ -f "$HARNESS_DIR/.venv/bin/harness" ] && [ "$FORCE" != "--force" ]; then
     echo "[OK] Le venv existe déjà"
-    "$HARNESS_DIR/.venv/bin/harness" --help | head -3
+    "$HARNESS_DIR/.venv/bin/harness" --help 2>&1 | head -3 || true
     echo ""
     echo "Pour réinstaller : mise run agent:setup -- --force"
     exit 0
