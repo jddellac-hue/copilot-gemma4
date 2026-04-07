@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+#MISE description="Installer le venv agent-harness (à faire une fois par machine)"
+set -euo pipefail
+
+HARNESS_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}/agent-harness"
+
+echo "=== Installation agent-harness ==="
+echo "Répertoire : $HARNESS_DIR"
+echo ""
+
+if [ ! -f "$HARNESS_DIR/pyproject.toml" ]; then
+    echo "[ERREUR] agent-harness introuvable dans $HARNESS_DIR"
+    echo "Vérifiez que le repo est bien cloné."
+    exit 1
+fi
+
+if [ -f "$HARNESS_DIR/.venv/bin/harness" ]; then
+    echo "[OK] Le venv existe déjà"
+    "$HARNESS_DIR/.venv/bin/harness" --help | head -3
+    echo ""
+    read -rp "Réinstaller ? [o/N] " CONFIRM
+    if [[ ! "$CONFIRM" =~ ^[oOyY]$ ]]; then
+        exit 0
+    fi
+fi
+
+echo "[...] Création du venv..."
+python3 -m venv "$HARNESS_DIR/.venv"
+
+echo "[...] Installation des dépendances..."
+"$HARNESS_DIR/.venv/bin/pip" install --upgrade pip -q
+"$HARNESS_DIR/.venv/bin/pip" install -e "$HARNESS_DIR[dev]" -q
+
+echo ""
+echo "[OK] agent-harness installé"
+"$HARNESS_DIR/.venv/bin/harness" --help | head -3
+echo ""
+echo "Vous pouvez maintenant utiliser :"
+echo "  mise run agent:coding -- \"votre tâche\""
+echo "  mise run agent:doc -- \"votre tâche\""
