@@ -14,14 +14,14 @@ if [ ! -f "$HARNESS_DIR/pyproject.toml" ]; then
     exit 1
 fi
 
-if [ -f "$HARNESS_DIR/.venv/bin/harness" ]; then
+FORCE="${1:-}"
+
+if [ -f "$HARNESS_DIR/.venv/bin/harness" ] && [ "$FORCE" != "--force" ]; then
     echo "[OK] Le venv existe déjà"
     "$HARNESS_DIR/.venv/bin/harness" --help | head -3
     echo ""
-    read -rp "Réinstaller ? [o/N] " CONFIRM
-    if [[ ! "$CONFIRM" =~ ^[oOyY]$ ]]; then
-        exit 0
-    fi
+    echo "Pour réinstaller : mise run agent:setup -- --force"
+    exit 0
 fi
 
 echo "[...] Création du venv..."
