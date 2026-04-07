@@ -18,5 +18,4 @@ echo "=== Évaluation agent-harness ($ROLE) ==="
 echo "Profil : $PROFILE"
 echo ""
 
-source "$HARNESS_DIR/.venv/bin/activate"
-exec harness eval --profile "$PROFILE"
+exec "$HARNESS_DIR/.venv/bin/harness" eval --profile "$PROFILE"

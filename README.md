@@ -2,6 +2,20 @@
 
 Déploiement local de modèles Gemma 4 via [mise](https://mise.jdx.dev/) tasks.
 
+## Installation
+
+```bash
+# Cloner le repo (avec token PAT GitHub)
+git clone https://<USER>:<TOKEN>@github.com/jddellac-hue/copilot-gemma4.git
+# Exemple :
+# git clone https://jddellac-hue:ghp_xxxxxxxxxxxxxxxxxxxx@github.com/jddellac-hue/copilot-gemma4.git
+
+cd copilot-gemma4
+
+# Mettre à jour (rebase depuis GitHub)
+git pull --rebase origin main
+```
+
 ## Prérequis
 
 ```bash
@@ -9,7 +23,6 @@ Déploiement local de modèles Gemma 4 via [mise](https://mise.jdx.dev/) tasks.
 curl https://mise.jdx.dev/install.sh | sh
 
 # Faire confiance au projet
-cd copilot-gemma4
 mise trust
 ```
 

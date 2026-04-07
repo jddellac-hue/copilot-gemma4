@@ -31,7 +31,6 @@ echo "    }"
 echo "  }"
 echo ""
 
-source "$HARNESS_DIR/.venv/bin/activate"
-exec harness mcp-serve \
+exec "$HARNESS_DIR/.venv/bin/harness" mcp-serve \
     --profile "$PROFILE" \
     --workspace "$WORKSPACE"

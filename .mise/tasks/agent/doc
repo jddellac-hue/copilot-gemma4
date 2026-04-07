@@ -33,8 +33,7 @@ for m in d.get('models',[]):
 " 2>/dev/null || true
 
 # Lancer le harness
-source "$HARNESS_DIR/.venv/bin/activate"
-exec harness run \
+exec "$HARNESS_DIR/.venv/bin/harness" run \
     --profile "$PROFILE" \
     --workspace "$WORKSPACE" \
     "$TASK"
