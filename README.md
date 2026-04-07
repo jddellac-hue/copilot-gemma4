@@ -1,6 +1,8 @@
 # copilot-gemma4
 
-Déploiement local de modèles Gemma 4 via [mise](https://mise.jdx.dev/) tasks.
+Déploiement local de modèles [Gemma 4](https://blog.google/innovation-and-ai/technology/developers-tools/gemma-4/) (Google DeepMind) via [mise](https://mise.jdx.dev/) tasks, avec chat interactif et agents autonomes.
+
+**20 tasks mise** : gestion de modèles, benchmarks, chat streaming, agents avec tool calling (via [agent-harness](agent-harness/)), TUI de suivi.
 
 ## Installation
 
@@ -16,14 +18,30 @@ cd copilot-gemma4
 git pull --rebase origin main
 ```
 
-## Prérequis
+## Setup complet (nouvelle machine)
 
 ```bash
-# Installer mise (si pas déjà fait)
+# 1. Installer mise
 curl https://mise.jdx.dev/install.sh | sh
 
-# Faire confiance au projet
+# 2. Faire confiance au projet
+cd copilot-gemma4
 mise trust
+
+# 3. Installer les prérequis (ollama, paquets système, venv Python)
+mise run prereqs:install
+
+# 4. Voir les modèles disponibles et la compatibilité de la machine
+mise run model:evaluate
+
+# 5. Installer le modèle recommandé
+mise run model:install -- gemma4:26b-a4b-it-q8_0
+
+# 6. Installer le harness agent (une fois par machine)
+mise run agent:setup
+
+# 7. Tester
+mise run chat:general
 ```
 
 ## Tasks disponibles
@@ -222,25 +240,58 @@ mise run agent:eval -- coding
 
 ---
 
+### agent:setup — Installer le harness (une fois par machine)
+
+Crée le virtualenv Python et installe les dépendances de agent-harness. À faire une fois après le clone sur chaque machine.
+
+```bash
+mise run agent:setup
+
+# Réinstaller
+mise run agent:setup -- --force
+```
+
+---
+
 ### test:verify — Vérifier qu'un modèle fonctionne
 
 Envoie un prompt de test, mesure le temps de réponse, puis décharge le modèle de la mémoire.
 
 ```bash
 mise run test:verify -- gemma4:26b
-mise run test:verify -- 31b
 ```
 
 ### test:bench — Benchmarker un modèle
 
-Lance 4 prompts de complexité croissante (court, moyen, long, raisonnement), mesure les performances, et **sauvegarde les résultats dans `benchmarks/`**. Si un benchmark existe déjà pour ce modèle, demande confirmation avant de relancer.
+Lance 10 prompts (5 coding + 5 doc) avec timeouts (300s coding, 180s doc), calcule un score UX, et sauvegarde les résultats dans `.mise/benchmarks/`. Demande confirmation si un bench existe déjà.
 
 ```bash
-mise run test:bench -- gemma4:26b
-mise run test:bench -- 31b-it-q8_0
+mise run test:bench -- gemma4:26b all        # 10 prompts coding+doc
+mise run test:bench -- gemma4:26b coding     # 5 prompts coding
+mise run test:bench -- gemma4:26b doc        # 5 prompts doc
 ```
 
-Les résultats sont dans `benchmarks/<modele>.md`.
+---
+
+### tui:bench — Suivre un benchmark en direct
+
+TUI graphique à lancer dans une **autre console** pendant qu'un bench tourne.
+
+```bash
+# Console 1 : lancer le bench
+mise run test:bench -- gemma4:26b all
+
+# Console 2 : suivre en direct
+mise run tui:bench
+```
+
+### tui:install — Suivre les modèles et téléchargements
+
+TUI montrant les modèles installés, chargés en mémoire, et l'espace disque.
+
+```bash
+mise run tui:install
+```
 
 ---
 
@@ -314,4 +365,58 @@ mise run test:bench -- gemma4:26b doc        # 5 prompts doc
 Suivez en direct depuis une autre console :
 ```bash
 mise run tui:bench
+```
+
+## Structure du projet
+
+```
+copilot-gemma4/
+├── mise.toml                          # Config (modèles par défaut, env vars)
+├── README.md
+├── scripts/
+│   ├── chat.py                        # Chat interactif streaming
+│   └── ensure-model.sh                # Vérif auto ollama + modèle + preload
+├── .mise/
+│   ├── benchmarks/                    # Résultats sauvegardés
+│   └── tasks/
+│       ├── prereqs/install|uninstall  # Prérequis système
+│       ├── model/                     # evaluate|install|uninstall|list|start|stop
+│       ├── test/bench|verify          # Benchmarks et vérifications
+│       ├── tui/bench|install          # Interfaces TUI
+│       ├── chat/coding|doc|general    # Chat interactif
+│       ├── agent/                     # coding|doc|mcp|eval|setup
+│       └── clean                      # Nettoyage profond
+└── agent-harness/                     # Harness agentique
+    ├── config/profiles/
+    │   ├── gemma4-coding.yaml         # Profil coding (temp 0.2, bash ask)
+    │   └── gemma4-doc.yaml            # Profil doc (temp 0.3, write allow, bash deny)
+    ├── src/harness/                   # Agent ReAct, tools, permissions, sandbox
+    ├── eval/tasks/                    # 7 tâches d'évaluation
+    └── .venv/                         # (gitignored, créé via agent:setup)
+```
+
+## Toutes les tasks
+
+```
+prereqs:install    Installer les prérequis (ollama, GPU drivers, Python venv)
+prereqs:uninstall  Désinstaller les prérequis
+model:evaluate     Lister les modèles disponibles et évaluer la compatibilité
+model:install      Installer un modèle
+model:uninstall    Désinstaller un modèle
+model:list         Lister les modèles installés
+model:start        Démarrer/précharger un modèle en mémoire
+model:stop         Décharger un modèle de la mémoire
+chat:coding        Chat interactif agent coding
+chat:doc           Chat interactif agent documentation
+chat:general       Chat interactif agent général
+agent:coding       Agent coding avec tools (harness)
+agent:doc          Agent documentation avec tools (harness)
+agent:mcp          Serveur MCP pour IDE
+agent:eval         Suite d'évaluation du harness
+agent:setup        Installer le venv agent-harness
+test:bench         Benchmarker un modèle (coding/doc/all)
+test:verify        Vérifier qu'un modèle fonctionne
+tui:bench          TUI suivi benchmark en direct
+tui:install        TUI suivi modèles et téléchargements
+clean              Nettoyage profond (tout supprimer)
 ```
