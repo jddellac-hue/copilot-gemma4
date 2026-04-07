@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+#MISE description="Installer un modèle Gemma 4 (ex: gemma4:26b)"
+set -euo pipefail
+
+MODEL="${1:-}"
+
+if [ -z "$MODEL" ]; then
+    echo "Usage: mise run model:install -- <modèle>"
+    echo ""
+    echo "Exemples :"
+    echo "  mise run model:install -- gemma4:26b"
+    echo "  mise run model:install -- gemma4:e4b"
+    echo "  mise run model:install -- gemma4:31b"
+    echo "  mise run model:install -- gemma4:e2b"
+    echo "  mise run model:install -- gemma4:31b-it-q8_0"
+    echo ""
+    echo "Lancez 'mise run model:evaluate' pour voir les modèles disponibles."
+    exit 1
+fi
+
+# Vérifier qu'ollama est installé
+if ! command -v ollama &>/dev/null; then
+    echo "[ERREUR] ollama n'est pas installé."
+    echo "Lancez : mise run prereqs:install"
+    exit 1
+fi
+
+# Normaliser : ajouter gemma4: si absent
+if [[ "$MODEL" != gemma4:* ]]; then
+    MODEL="gemma4:${MODEL}"
+fi
+
+echo "=== Installation de $MODEL ==="
+echo ""
+
+# Vérifier si déjà installé
+if ollama list 2>/dev/null | grep -q "$MODEL"; then
+    echo "[OK] $MODEL déjà installé"
+    ollama list | grep "$MODEL"
+    exit 0
+fi
+
+echo "[...] Téléchargement de $MODEL (cela peut prendre un moment)..."
+ollama pull "$MODEL"
+echo ""
+echo "[OK] $MODEL installé"
+ollama list | grep "$MODEL"

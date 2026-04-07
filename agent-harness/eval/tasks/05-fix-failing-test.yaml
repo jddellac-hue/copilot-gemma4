@@ -1,0 +1,43 @@
+id: 05-fix-failing-test
+category: coding
+description: |
+  A bug in the code makes a test fail. The agent must run the test, read
+  the error, locate the bug, fix it, and re-run to confirm. Tests the full
+  edit-test loop.
+
+fixture:
+  files:
+    "math_utils.py": |
+      def factorial(n):
+          if n == 0:
+              return 0  # BUG: should be 1
+          result = 1
+          for i in range(1, n + 1):
+              result *= i
+          return result
+    "test_math.py": |
+      from math_utils import factorial
+
+      def test_zero():
+          assert factorial(0) == 1, f"factorial(0) returned {factorial(0)}"
+
+      def test_five():
+          assert factorial(5) == 120
+
+      if __name__ == "__main__":
+          test_zero()
+          test_five()
+          print("PASS")
+
+prompt: |
+  Run `test_math.py`. If it fails, locate the bug in `math_utils.py`, fix
+  it, and re-run until the tests pass.
+
+success:
+  type: bash
+  command: |
+    python test_math.py 2>&1 | grep -q "PASS"
+
+budget:
+  max_steps: 15
+  max_tokens: 15000

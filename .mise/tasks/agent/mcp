@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+#MISE description="Démarrer le serveur MCP (pour VS Code / Copilot / Claude Desktop)"
+set -euo pipefail
+
+ROLE="${1:-coding}"
+WORKSPACE="${2:-.}"
+HARNESS_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}/agent-harness"
+
+case "$ROLE" in
+    coding) PROFILE="$HARNESS_DIR/config/profiles/gemma4-coding.yaml" ;;
+    doc)    PROFILE="$HARNESS_DIR/config/profiles/gemma4-doc.yaml" ;;
+    *)
+        echo "Usage: mise run agent:mcp -- [coding|doc] [workspace]"
+        echo ""
+        echo "Démarre un serveur MCP exposant les outils du harness."
+        echo "Les clients MCP (VS Code, Copilot, Claude Desktop) peuvent s'y connecter."
+        exit 1
+        ;;
+esac
+
+echo "=== Serveur MCP ($ROLE) ==="
+echo "Profil    : $PROFILE"
+echo "Workspace : $WORKSPACE"
+echo ""
+echo "Pour connecter VS Code, ajoutez dans settings.json :"
+echo "  \"mcp.servers\": {"
+echo "    \"gemma4-$ROLE\": {"
+echo "      \"command\": \"$HARNESS_DIR/.venv/bin/harness\","
+echo "      \"args\": [\"mcp-serve\", \"--profile\", \"$PROFILE\", \"--workspace\", \"$WORKSPACE\"]"
+echo "    }"
+echo "  }"
+echo ""
+
+source "$HARNESS_DIR/.venv/bin/activate"
+exec harness mcp-serve \
+    --profile "$PROFILE" \
+    --workspace "$WORKSPACE"

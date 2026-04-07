@@ -1,0 +1,130 @@
+# =============================================================================
+# Profile: dev
+# =============================================================================
+# Local development profile. Bubblewrap sandbox, ask before mutations, no
+# network access for the sandbox unless explicitly allowed.
+# =============================================================================
+
+name: dev
+profile_type: coding         # "coding" or "ops"
+log_level: INFO
+
+# -----------------------------------------------------------------------------
+# Model
+# -----------------------------------------------------------------------------
+model:
+  provider: ollama
+  endpoint: http://localhost:11434
+  name: gemma:7b-instruct    # change to your installed Gemma variant
+  temperature: 0.2
+  num_ctx: 8192
+
+# -----------------------------------------------------------------------------
+# Agent loop
+# -----------------------------------------------------------------------------
+agent:
+  max_steps: 25
+  token_budget: 50000
+  wall_clock_timeout_s: 600
+  repetition_threshold: 3
+
+# -----------------------------------------------------------------------------
+# Memory
+# -----------------------------------------------------------------------------
+memory:
+  soft_budget_tokens: 6000
+  long_term_path: ~/.local/share/agent-harness/notes.md
+
+# -----------------------------------------------------------------------------
+# Sandbox
+# -----------------------------------------------------------------------------
+sandbox:
+  backend: bubblewrap        # bubblewrap | subprocess
+  allow_network: false       # set true only when the agent legitimately needs HTTP
+  max_output_bytes: 16384
+  extra_ro_binds: []         # additional read-only bind mounts inside the sandbox
+
+# -----------------------------------------------------------------------------
+# Permissions matrix
+# -----------------------------------------------------------------------------
+# Decision algorithm:
+#   1. Iterate rules in order; the first matching `tool` wins.
+#   2. Within the matched rule, `patterns_deny` (regex on JSON-encoded args)
+#      forces a deny; otherwise `patterns_ask` may downgrade allow → ask.
+#   3. If no rule matches, the `default` decision applies.
+#
+# Permitted decisions: allow | ask | deny
+# -----------------------------------------------------------------------------
+permissions:
+  default: ask
+  audit_log_path: ~/.local/share/agent-harness/audit.jsonl
+
+  rules:
+    # ---- Read-only filesystem: always safe ----
+    - tool: read_file
+      decision: allow
+    - tool: list_dir
+      decision: allow
+    - tool: search_files
+      decision: allow
+
+    # ---- Filesystem mutations: ask, with hard denies on protected paths ----
+    - tool: write_file
+      decision: ask
+      patterns_deny:
+        - "\\.ssh/"
+        - "\\.aws/"
+        - "\\.kube/"
+        - "\\.gnupg/"
+        - "/etc/"
+        - "/usr/"
+        - "id_rsa"
+        - "id_ed25519"
+
+    - tool: edit_file
+      decision: ask
+      patterns_deny:
+        - "\\.ssh/"
+        - "\\.aws/"
+        - "\\.kube/"
+        - "/etc/"
+
+    # ---- Bash: ask by default, deny on a curated set of dangerous patterns ----
+    - tool: bash
+      decision: ask
+      patterns_deny:
+        # Filesystem destruction
+        - "\\brm\\s+-rf?\\s+/"
+        - "\\brm\\s+-rf?\\s+\\*"
+        - "\\bmkfs\\b"
+        - "\\bdd\\s+if="
+        # Privilege escalation
+        - "\\bsudo\\b"
+        - "\\bsu\\b"
+        # Pipe to shell
+        - "\\|\\s*(sh|bash)\\b"
+        - "curl\\s+[^|]*\\|\\s*(sh|bash)"
+        - "wget\\s+[^|]*\\|\\s*(sh|bash)"
+        # Force git operations
+        - "git\\s+push\\s+.*--force"
+        - "git\\s+reset\\s+--hard"
+        # Mass permission changes
+        - "chmod\\s+-R\\s+777"
+      patterns_ask:
+        # These are normally allowed inside the sandbox but worth flagging
+        - "git\\s+push"
+        - "npm\\s+publish"
+        - "pip\\s+install"
+        - "mvn\\s+deploy"
+
+    # ---- MCP tools: catch-all for tools loaded from external MCP servers ----
+    - tool: "*"
+      decision: ask
+
+# -----------------------------------------------------------------------------
+# Observability
+# -----------------------------------------------------------------------------
+observability:
+  enabled: true
+  service_name: agent-harness-dev
+  otlp_endpoint: http://localhost:4317   # collector or OneAgent endpoint

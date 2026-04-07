@@ -1,0 +1,21 @@
+# Virtualenvs
+.venv/
+*.venv/
+venv/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Ollama data (local only)
+models/

@@ -1,0 +1,377 @@
+#!/usr/bin/env bash
+#MISE description="Benchmarker un modèle Gemma 4 (ex: gemma4:26b [coding|doc|all])"
+set -euo pipefail
+
+REPO_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+BENCH_DIR="$REPO_DIR/benchmarks"
+PROGRESS_FILE="/tmp/gemma4-bench-status.json"
+mkdir -p "$BENCH_DIR"
+
+MODEL="${1:-}"
+MODE="${2:-all}"
+
+if [ -z "$MODEL" ]; then
+    echo "Usage: mise run test:bench -- <modèle> [coding|doc|all]"
+    echo ""
+    echo "Modes :"
+    echo "  coding  - Prompts orientés agent de code"
+    echo "  doc     - Prompts orientés agent de documentation"
+    echo "  all     - Les deux (défaut)"
+    echo ""
+    echo "Modèles installés :"
+    ollama list 2>/dev/null | tail -n +2 || echo "  (aucun)"
+    echo ""
+    echo "Benchmarks existants :"
+    ls "$BENCH_DIR"/*.md 2>/dev/null | sed 's/.*\//  /' || echo "  (aucun)"
+    echo ""
+    echo "TUI : lancez 'mise run tui:bench' dans un autre terminal pour suivre en direct"
+    exit 1
+fi
+
+# Normaliser
+if [[ "$MODEL" != gemma4:* ]]; then
+    MODEL="gemma4:${MODEL}"
+fi
+
+if ! ollama list 2>/dev/null | grep -q "$MODEL"; then
+    echo "[ERREUR] $MODEL n'est pas installé"
+    exit 1
+fi
+
+# Vérifier bench existant
+BENCH_FILE="$BENCH_DIR/${MODEL//[:\/]/_}_${MODE}.md"
+if [ -f "$BENCH_FILE" ]; then
+    echo "[INFO] Un benchmark '$MODE' existe déjà pour $MODEL :"
+    head -20 "$BENCH_FILE"
+    echo "..."
+    echo ""
+    read -rp "Relancer le benchmark ? [o/N] " CONFIRM
+    if [[ ! "$CONFIRM" =~ ^[oOyY]$ ]]; then
+        exit 0
+    fi
+fi
+
+# ============================================================================
+# Prompts
+# ============================================================================
+
+CODING_PROMPTS=(
+    "code_simple|Écris une fonction Python fizzbuzz(n) qui retourne une liste FizzBuzz de 1 à n. Sois concis, code uniquement."
+    "code_debug|Trouve le bug : def merge_sorted(a,b): r=[]; i=j=0; ... ne garde pas les éléments restants après la boucle. Corrige en 10 lignes max."
+    "code_refactor|Refactorise ce code Python en version idiomatique concise : def process(data): r=[]; [boucle for+if imbriqués avec isinstance]. Donne juste le code corrigé."
+    "code_algo|Implémente une classe LRUCache en Python avec get() et put() en O(1). Code concis avec OrderedDict."
+    "code_archi|Décris en 30 lignes max les endpoints et modèles Pydantic pour une API FastAPI de gestion de tâches (todo CRUD)."
+)
+
+DOC_PROMPTS=(
+    "doc_api|Écris une docstring Google-style concise pour : def retry(func, max_attempts=3, delay=1.0, backoff=2.0, exceptions=(Exception,)). 15 lignes max."
+    "doc_changelog|Génère un CHANGELOG v2.5.0 concis : 2 features, 2 bugfixes, 1 breaking change. Format Keep a Changelog."
+    "doc_technique|Explique le garbage collector CPython en 20 lignes : comptage de refs, détecteur de cycles, générations."
+    "doc_tutorial|Écris un mini Getting Started (30 lignes) pour une lib Python 'dataflow' de pipelines de données."
+    "doc_readme|Écris un README.md concis (40 lignes) pour un CLI 'logwatch' d'analyse de logs temps réel avec alertes."
+)
+
+# ============================================================================
+# Sélection des prompts selon le mode
+# ============================================================================
+declare -a PROMPTS
+case "$MODE" in
+    coding) PROMPTS=("${CODING_PROMPTS[@]}") ;;
+    doc)    PROMPTS=("${DOC_PROMPTS[@]}") ;;
+    all)    PROMPTS=("${CODING_PROMPTS[@]}" "${DOC_PROMPTS[@]}") ;;
+    *)      echo "[ERREUR] Mode inconnu : $MODE (coding|doc|all)"; exit 1 ;;
+esac
+
+TOTAL_PROMPTS=${#PROMPTS[@]}
+
+# ============================================================================
+# Décharger les autres modèles
+# ============================================================================
+echo "[...] Libération de la mémoire..."
+LOADED=$(curl -sf http://localhost:11434/api/ps 2>/dev/null | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+for m in d.get('models',[]):
+    print(m['name'])
+" 2>/dev/null || true)
+
+for loaded_model in $LOADED; do
+    curl -sf http://localhost:11434/api/generate \
+        -d "{\"model\":\"$loaded_model\",\"keep_alive\":0}" > /dev/null 2>&1 || true
+done
+sleep 2
+
+# ============================================================================
+# Infos machine
+# ============================================================================
+MACHINE_CPU=$(lscpu | grep -E 'Nom de modèle|Model name' | head -1 | sed 's/.*:\s*//')
+MACHINE_RAM_AVAIL=$(($(grep MemAvailable /proc/meminfo | awk '{print $2}') / 1024 / 1024))
+MACHINE_RAM_TOTAL=$(($(grep MemTotal /proc/meminfo | awk '{print $2}') / 1024 / 1024))
+MACHINE_DATE=$(date '+%Y-%m-%d %H:%M')
+MACHINE_GPU="Aucun (CPU-only)"
+command -v nvidia-smi &>/dev/null && \
+    MACHINE_GPU=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
+
+# ============================================================================
+# Initialiser le fichier de progression (pour tui:bench)
+# ============================================================================
+write_progress() {
+    cat > "$PROGRESS_FILE" << PEOF
+{
+  "model": "$MODEL",
+  "mode": "$MODE",
+  "machine": "$MACHINE_CPU",
+  "started_at": "$BENCH_START",
+  "current_prompt": $1,
+  "total_prompts": $TOTAL_PROMPTS,
+  "current_label": "$2",
+  "status": "$3",
+  "results": [$4],
+  "coding_score": $5,
+  "doc_score": $6,
+  "overall_score": $7
+}
+PEOF
+}
+
+BENCH_START=$(date '+%Y-%m-%d %H:%M:%S')
+RESULTS_JSON=""
+write_progress 0 "initialisation" "running" "" 0 0 0
+
+echo ""
+echo "============================================"
+echo "BENCHMARK : $MODEL (mode: $MODE)"
+echo "Machine   : $MACHINE_CPU"
+echo "RAM dispo : ${MACHINE_RAM_AVAIL} Go"
+echo "Date      : $MACHINE_DATE"
+echo "Prompts   : $TOTAL_PROMPTS"
+echo "============================================"
+echo ""
+echo "TUI : lancez 'mise run tui:bench' dans un autre terminal"
+echo ""
+
+# ============================================================================
+# Timeouts par catégorie (en secondes)
+# Coding : 120s (on tolère plus, la qualité prime)
+# Doc : 90s (si c'est pas fluide, c'est pas bon pour de la doc)
+# ============================================================================
+# Timeouts en secondes
+# Le thinking mode génère beaucoup de tokens internes avant la réponse
+TIMEOUT_CODING=300
+TIMEOUT_DOC=180
+
+# ============================================================================
+# Exécution
+# ============================================================================
+declare -a RESULT_LINES
+coding_total_time=0
+coding_total_tokens=0
+coding_count=0
+doc_total_time=0
+doc_total_tokens=0
+doc_count=0
+prompt_idx=0
+
+for entry in "${PROMPTS[@]}"; do
+    IFS='|' read -r label prompt <<< "$entry"
+    prompt_idx=$((prompt_idx + 1))
+
+    # Catégorie
+    if [[ "$label" == code_* ]]; then
+        category="coding"
+        timeout_val=$TIMEOUT_CODING
+    else
+        category="doc"
+        timeout_val=$TIMEOUT_DOC
+    fi
+
+    printf "  [%d/%d] %-20s " "$prompt_idx" "$TOTAL_PROMPTS" "$label"
+    write_progress "$prompt_idx" "$label" "running" "$RESULTS_JSON" 0 0 0
+
+    start_time=$(date +%s%N)
+
+    response=$(timeout "${timeout_val}s" ollama run "$MODEL" "$prompt" 2>&1) && exit_code=0 || exit_code=$?
+
+    if [ $exit_code -eq 124 ]; then
+        end_time=$(date +%s%N)
+        duration_ms=$(( (end_time - start_time) / 1000000 ))
+        duration_s=$(echo "scale=1; $duration_ms / 1000" | bc)
+        printf "%-8s TIMEOUT (>${timeout_val}s)\n" "${duration_s}s"
+        RESULT_LINES+=("| $label | $category | ${duration_s}s | TIMEOUT | >${timeout_val}s | - |")
+        [ -n "$RESULTS_JSON" ] && RESULTS_JSON="${RESULTS_JSON},"
+        RESULTS_JSON="${RESULTS_JSON}{\"label\":\"$label\",\"cat\":\"$category\",\"time_s\":$duration_s,\"tokens\":0,\"tok_s\":0,\"status\":\"timeout\"}"
+        continue
+    elif [ $exit_code -ne 0 ]; then
+        echo "ERREUR"
+        RESULT_LINES+=("| $label | $category | ERREUR | - | - | - |")
+        [ -n "$RESULTS_JSON" ] && RESULTS_JSON="${RESULTS_JSON},"
+        RESULTS_JSON="${RESULTS_JSON}{\"label\":\"$label\",\"cat\":\"$category\",\"status\":\"error\"}"
+        continue
+    fi
+
+    end_time=$(date +%s%N)
+    duration_ms=$(( (end_time - start_time) / 1000000 ))
+    duration_s=$(echo "scale=1; $duration_ms / 1000" | bc)
+
+    chars=${#response}
+    tokens_est=$((chars / 4))
+    tok_per_sec=0
+    if [ "$duration_ms" -gt 0 ]; then
+        tok_per_sec=$(echo "scale=1; $tokens_est * 1000 / $duration_ms" | bc)
+    fi
+
+    printf "%-8s ~%-5d tokens  ~%-5s tok/s\n" "${duration_s}s" "$tokens_est" "$tok_per_sec"
+
+    RESULT_LINES+=("| $label | $category | ${duration_s}s | ~${tokens_est} | ${tok_per_sec} tok/s | ${chars} |")
+
+    # Accumuler par catégorie
+    if [ "$category" = "coding" ]; then
+        coding_total_time=$((coding_total_time + duration_ms))
+        coding_total_tokens=$((coding_total_tokens + tokens_est))
+        coding_count=$((coding_count + 1))
+    else
+        doc_total_time=$((doc_total_time + duration_ms))
+        doc_total_tokens=$((doc_total_tokens + tokens_est))
+        doc_count=$((doc_count + 1))
+    fi
+
+    # Mettre à jour la progression
+    [ -n "$RESULTS_JSON" ] && RESULTS_JSON="${RESULTS_JSON},"
+    RESULTS_JSON="${RESULTS_JSON}{\"label\":\"$label\",\"cat\":\"$category\",\"time_s\":$duration_s,\"tokens\":$tokens_est,\"tok_s\":$tok_per_sec}"
+    write_progress "$prompt_idx" "$label" "running" "$RESULTS_JSON" 0 0 0
+done
+
+# ============================================================================
+# Calcul des scores UX
+# ============================================================================
+calc_ux_score() {
+    local avg_tok_s=$1
+    local category=$2
+    # Seuils UX (tok/s -> note /100)
+    # Coding : tolérance plus haute (on attend la qualité)
+    # Doc : besoin de fluidité (on génère beaucoup de texte)
+    if [ "$category" = "coding" ]; then
+        # Coding : >15 = excellent, 8-15 = bon, 3-8 = acceptable, <3 = pénible
+        if (( $(echo "$avg_tok_s >= 15" | bc -l) )); then echo 95
+        elif (( $(echo "$avg_tok_s >= 8" | bc -l) )); then echo $(echo "70 + ($avg_tok_s - 8) * 25 / 7" | bc)
+        elif (( $(echo "$avg_tok_s >= 3" | bc -l) )); then echo $(echo "40 + ($avg_tok_s - 3) * 30 / 5" | bc)
+        elif (( $(echo "$avg_tok_s >= 1" | bc -l) )); then echo $(echo "10 + ($avg_tok_s - 1) * 30 / 2" | bc)
+        else echo 5
+        fi
+    else
+        # Doc : >25 = excellent, 15-25 = bon, 8-15 = acceptable, <8 = pénible
+        if (( $(echo "$avg_tok_s >= 25" | bc -l) )); then echo 95
+        elif (( $(echo "$avg_tok_s >= 15" | bc -l) )); then echo $(echo "70 + ($avg_tok_s - 15) * 25 / 10" | bc)
+        elif (( $(echo "$avg_tok_s >= 8" | bc -l) )); then echo $(echo "40 + ($avg_tok_s - 8) * 30 / 7" | bc)
+        elif (( $(echo "$avg_tok_s >= 3" | bc -l) )); then echo $(echo "10 + ($avg_tok_s - 3) * 30 / 5" | bc)
+        else echo 5
+        fi
+    fi
+}
+
+ux_label() {
+    local score=$1
+    if [ "$score" -ge 90 ]; then echo "Excellent"
+    elif [ "$score" -ge 70 ]; then echo "Bon"
+    elif [ "$score" -ge 40 ]; then echo "Acceptable"
+    elif [ "$score" -ge 20 ]; then echo "Lent mais utilisable"
+    else echo "Pénible"
+    fi
+}
+
+echo ""
+echo "============================================"
+echo "RÉSULTATS"
+echo "============================================"
+echo ""
+
+coding_score=0
+doc_score=0
+
+if [ "$coding_count" -gt 0 ]; then
+    coding_avg=$(echo "scale=1; $coding_total_tokens * 1000 / $coding_total_time" | bc)
+    coding_time_s=$(echo "scale=1; $coding_total_time / 1000" | bc)
+    coding_score=$(calc_ux_score "$coding_avg" "coding")
+    echo "  CODING ($coding_count prompts)"
+    echo "    Temps total : ${coding_time_s}s"
+    echo "    Vitesse moy : ~${coding_avg} tok/s"
+    echo "    Score UX    : ${coding_score}/100 ($(ux_label "$coding_score"))"
+    echo ""
+fi
+
+if [ "$doc_count" -gt 0 ]; then
+    doc_avg=$(echo "scale=1; $doc_total_tokens * 1000 / $doc_total_time" | bc)
+    doc_time_s=$(echo "scale=1; $doc_total_time / 1000" | bc)
+    doc_score=$(calc_ux_score "$doc_avg" "doc")
+    echo "  DOCUMENTATION ($doc_count prompts)"
+    echo "    Temps total : ${doc_time_s}s"
+    echo "    Vitesse moy : ~${doc_avg} tok/s"
+    echo "    Score UX    : ${doc_score}/100 ($(ux_label "$doc_score"))"
+    echo ""
+fi
+
+overall_tokens=$((coding_total_tokens + doc_total_tokens))
+overall_time=$((coding_total_time + doc_total_time))
+overall_avg=0
+[ "$overall_time" -gt 0 ] && overall_avg=$(echo "scale=1; $overall_tokens * 1000 / $overall_time" | bc)
+overall_time_s=$(echo "scale=1; $overall_time / 1000" | bc)
+overall_score=$(( (coding_score + doc_score) / 2 ))
+[ "$coding_count" -eq 0 ] && overall_score=$doc_score
+[ "$doc_count" -eq 0 ] && overall_score=$coding_score
+
+echo "  GLOBAL"
+echo "    Temps total : ${overall_time_s}s"
+echo "    Vitesse moy : ~${overall_avg} tok/s"
+echo "    Score UX    : ${overall_score}/100 ($(ux_label "$overall_score"))"
+
+# Progression finale
+write_progress "$TOTAL_PROMPTS" "terminé" "done" "$RESULTS_JSON" "$coding_score" "$doc_score" "$overall_score"
+
+# ============================================================================
+# Sauvegarder
+# ============================================================================
+cat > "$BENCH_FILE" << EOF
+# Benchmark $MODEL (mode: $MODE)
+
+## Machine
+- CPU: $MACHINE_CPU
+- RAM: ${MACHINE_RAM_AVAIL} Go disponibles / ${MACHINE_RAM_TOTAL} Go total
+- GPU: $MACHINE_GPU
+- Date: $MACHINE_DATE
+
+## Résultats détaillés
+
+| Prompt | Catégorie | Temps | Tokens est. | Vitesse | Caractères |
+|--------|-----------|-------|-------------|---------|------------|
+$(printf '%s\n' "${RESULT_LINES[@]}")
+
+## Scores UX
+
+| Catégorie | Vitesse moy. | Score | Verdict |
+|-----------|-------------|-------|---------|
+$([ "$coding_count" -gt 0 ] && echo "| Coding | ~${coding_avg} tok/s | ${coding_score}/100 | $(ux_label "$coding_score") |")
+$([ "$doc_count" -gt 0 ] && echo "| Documentation | ~${doc_avg} tok/s | ${doc_score}/100 | $(ux_label "$doc_score") |")
+| **Global** | **~${overall_avg} tok/s** | **${overall_score}/100** | **$(ux_label "$overall_score")** |
+
+### Barème UX
+
+**Coding** (tolérance vitesse plus haute, qualité prime) :
+- 95+ : Excellent (>15 tok/s) — réponse fluide
+- 70-94 : Bon (8-15 tok/s) — attente raisonnable
+- 40-69 : Acceptable (3-8 tok/s) — utilisable pour des tâches ponctuelles
+- <40 : Lent (<3 tok/s) — pénible pour un usage interactif
+
+**Documentation** (besoin de fluidité pour le volume) :
+- 95+ : Excellent (>25 tok/s) — génération fluide de longs documents
+- 70-94 : Bon (15-25 tok/s) — confortable
+- 40-69 : Acceptable (8-15 tok/s) — utilisable avec patience
+- <40 : Lent (<8 tok/s) — inadapté pour de la documentation longue
+EOF
+
+echo ""
+echo "[OK] Résultats sauvegardés dans $BENCH_FILE"
+
+# Décharger
+curl -sf http://localhost:11434/api/generate \
+    -d "{\"model\":\"$MODEL\",\"keep_alive\":0}" > /dev/null 2>&1 || true
+echo "[OK] Mémoire libérée"

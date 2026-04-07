@@ -1,0 +1,39 @@
+id: 04-run-tests
+category: coding
+description: |
+  The agent must run a test suite via bash and report whether it passes
+  or fails. Tests bash invocation, exit code interpretation, output parsing.
+
+fixture:
+  files:
+    "calc.py": |
+      def add(a, b):
+          return a + b
+
+      def mul(a, b):
+          return a * b
+    "test_calc.py": |
+      from calc import add, mul
+
+      def test_add():
+          assert add(2, 3) == 5
+
+      def test_mul():
+          assert mul(4, 5) == 20
+
+      if __name__ == "__main__":
+          test_add()
+          test_mul()
+          print("ALL TESTS PASSED")
+
+prompt: |
+  Run the tests in `test_calc.py` and tell me if they pass.
+
+success:
+  type: contains
+  expected: "pass"
+  case_sensitive: false
+
+budget:
+  max_steps: 10
+  max_tokens: 8000

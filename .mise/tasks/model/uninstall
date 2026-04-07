@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+#MISE description="Désinstaller un modèle Gemma 4 (ex: gemma4:26b)"
+set -euo pipefail
+
+MODEL="${1:-}"
+
+if [ -z "$MODEL" ]; then
+    echo "Usage: mise run model:uninstall -- <modèle>"
+    echo ""
+    echo "Modèles installés :"
+    ollama list 2>/dev/null | tail -n +2 || echo "  (aucun)"
+    exit 1
+fi
+
+# Normaliser
+if [[ "$MODEL" != gemma4:* ]]; then
+    MODEL="gemma4:${MODEL}"
+fi
+
+if ! ollama list 2>/dev/null | grep -q "$MODEL"; then
+    echo "[OK] $MODEL n'est pas installé"
+    exit 0
+fi
+
+# Décharger de la mémoire d'abord
+curl -sf http://localhost:11434/api/generate -d "{\"model\":\"$MODEL\",\"keep_alive\":0}" > /dev/null 2>&1 || true
+
+echo "[...] Suppression de $MODEL..."
+ollama rm "$MODEL"
+echo "[OK] $MODEL supprimé"
+echo ""
+echo "Modèles restants :"
+ollama list 2>/dev/null | tail -n +2 || echo "  (aucun)"

@@ -1,0 +1,68 @@
+# =============================================================================
+# Profile: ci
+# =============================================================================
+# Non-interactive profile used by the eval suite in CI. No `ask` decisions —
+# every tool call is either explicitly allowed or denied. This makes runs
+# fully reproducible.
+# =============================================================================
+
+name: ci
+profile_type: coding
+log_level: WARNING
+
+model:
+  provider: ollama
+  endpoint: http://localhost:11434
+  name: gemma:7b-instruct
+  temperature: 0.0           # deterministic for reproducibility
+  num_ctx: 8192
+
+agent:
+  max_steps: 20
+  token_budget: 30000
+  wall_clock_timeout_s: 300
+  repetition_threshold: 2
+
+memory:
+  soft_budget_tokens: 5000
+
+sandbox:
+  backend: bubblewrap
+  allow_network: false
+  max_output_bytes: 16384
+
+permissions:
+  default: deny
+  audit_log_path: /tmp/agent-harness-ci-audit.jsonl
+
+  rules:
+    - tool: read_file
+      decision: allow
+    - tool: list_dir
+      decision: allow
+    - tool: search_files
+      decision: allow
+    - tool: write_file
+      decision: allow
+      patterns_deny:
+        - "\\.\\."
+        - "/etc/"
+        - "/usr/"
+    - tool: edit_file
+      decision: allow
+    - tool: bash
+      decision: allow
+      patterns_deny:
+        - "\\brm\\s+-rf?\\s+/"
+        - "\\bsudo\\b"
+        - "\\bcurl\\b"
+        - "\\bwget\\b"
+        - "\\bgit\\s+push\\b"
+        - "\\|\\s*(sh|bash)\\b"
+    - tool: "*"
+      decision: deny
+
+observability:
+  enabled: true
+  service_name: agent-harness-ci
+  otlp_endpoint: null        # logs only in CI

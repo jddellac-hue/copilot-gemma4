@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+#MISE description="Décharger un modèle (ou tous) de la mémoire"
+set -euo pipefail
+
+MODEL="${1:-all}"
+
+# Normaliser
+if [[ "$MODEL" != "all" ]] && [[ "$MODEL" != gemma4:* ]]; then
+    MODEL="gemma4:${MODEL}"
+fi
+
+LOADED=$(curl -sf http://localhost:11434/api/ps 2>/dev/null | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+for m in d.get('models',[]):
+    print(m['name'])
+" 2>/dev/null || true)
+
+if [ -z "$LOADED" ]; then
+    echo "[OK] Aucun modèle en mémoire"
+    exit 0
+fi
+
+if [ "$MODEL" = "all" ]; then
+    for m in $LOADED; do
+        echo "[...] Déchargement de $m..."
+        curl -sf http://localhost:11434/api/generate \
+            -d "{\"model\":\"$m\",\"keep_alive\":0}" > /dev/null 2>&1 || true
+    done
+    echo "[OK] Tous les modèles déchargés"
+else
+    if echo "$LOADED" | grep -q "$MODEL"; then
+        echo "[...] Déchargement de $MODEL..."
+        curl -sf http://localhost:11434/api/generate \
+            -d "{\"model\":\"$MODEL\",\"keep_alive\":0}" > /dev/null 2>&1 || true
+        echo "[OK] $MODEL déchargé"
+    else
+        echo "[OK] $MODEL n'est pas en mémoire"
+    fi
+fi

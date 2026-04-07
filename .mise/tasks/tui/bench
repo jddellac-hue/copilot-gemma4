@@ -1,0 +1,208 @@
+#!/usr/bin/env python3
+#MISE description="TUI : suivre un benchmark en cours en temps réel"
+
+import json
+import time
+import os
+import sys
+
+PROGRESS_FILE = "/tmp/gemma4-bench-status.json"
+REFRESH_INTERVAL = 1.0
+W = 62  # largeur intérieure de la box
+
+# Couleurs ANSI
+RESET   = "\033[0m"
+BOLD    = "\033[1m"
+DIM     = "\033[2m"
+GREEN   = "\033[32m"
+YELLOW  = "\033[33m"
+BLUE    = "\033[34m"
+MAGENTA = "\033[35m"
+CYAN    = "\033[36m"
+RED     = "\033[31m"
+
+def clear_screen():
+    sys.stdout.write("\033[2J\033[H")
+    sys.stdout.flush()
+
+def box_top():
+    return f"{BOLD}{CYAN}╔{'═'*W}╗{RESET}"
+
+def box_mid():
+    return f"{BOLD}{CYAN}╠{'═'*W}╣{RESET}"
+
+def box_bot():
+    return f"{BOLD}{CYAN}╚{'═'*W}╝{RESET}"
+
+def box_line(content=""):
+    # Calcule la longueur visible (sans les codes ANSI)
+    import re
+    visible = re.sub(r'\033\[[^m]*m', '', content)
+    pad = W - len(visible)
+    if pad < 0:
+        pad = 0
+    return f"{BOLD}{CYAN}║{RESET}{content}{' '*pad}{BOLD}{CYAN}║{RESET}"
+
+def box_empty():
+    return box_line("")
+
+def progress_bar(current, total, width=30):
+    if total == 0:
+        return "░" * width
+    filled = int(width * current / total)
+    bar = "█" * filled + "░" * (width - filled)
+    pct = int(100 * current / total)
+    return f"{bar} {pct:3d}%"
+
+def ux_color(score):
+    if score >= 90: return GREEN
+    if score >= 70: return CYAN
+    if score >= 40: return YELLOW
+    return RED
+
+def ux_label(score):
+    if score >= 90: return "Excellent"
+    if score >= 70: return "Bon"
+    if score >= 40: return "Acceptable"
+    if score >= 20: return "Lent"
+    return "Pénible"
+
+def render(data):
+    clear_screen()
+
+    model = data.get("model", "?")
+    mode = data.get("mode", "?")
+    machine = data.get("machine", "?")
+    started = data.get("started_at", "?")
+    current = data.get("current_prompt", 0)
+    total = data.get("total_prompts", 0)
+    label = data.get("current_label", "?")
+    status = data.get("status", "?")
+    results = data.get("results", [])
+    coding_score = data.get("coding_score", 0)
+    doc_score = data.get("doc_score", 0)
+    overall_score = data.get("overall_score", 0)
+
+    # Elapsed time
+    elapsed = ""
+    try:
+        from datetime import datetime
+        start_dt = datetime.strptime(started, "%Y-%m-%d %H:%M:%S")
+        elapsed_s = (datetime.now() - start_dt).total_seconds()
+        m, s = divmod(int(elapsed_s), 60)
+        elapsed = f" ({m}m{s:02d}s)"
+    except:
+        pass
+
+    # Header
+    print(box_top())
+    print(box_line(f"  {BOLD}BENCHMARK GEMMA 4{RESET}{elapsed}"))
+    print(box_mid())
+    print(box_line(f"  Modèle  : {BOLD}{model}{RESET}"))
+    print(box_line(f"  Mode    : {MAGENTA}{mode}{RESET}"))
+    print(box_line(f"  Machine : {DIM}{machine}{RESET}"))
+    print(box_line(f"  Début   : {DIM}{started}{RESET}"))
+    print(box_mid())
+
+    # Progression
+    if status == "done":
+        state_str = f"{GREEN}{BOLD}✓ TERMINÉ{RESET}"
+    else:
+        state_str = f"{YELLOW}▸ {label}...{RESET}"
+
+    print(box_empty())
+    print(box_line(f"  {BOLD}Progression{RESET}"))
+    print(box_line(f"  {progress_bar(current, total)}  [{current}/{total}]"))
+    print(box_line(f"  {state_str}"))
+    print(box_empty())
+
+    # Résultats
+    if results:
+        print(box_mid())
+        print(box_empty())
+        print(box_line(f"  {BOLD}Résultats{RESET}"))
+        print(box_empty())
+        print(box_line(f"  {DIM}{'Prompt':<20} {'Cat':<8} {'Temps':>8} {'Vitesse':>12}{RESET}"))
+        print(box_line(f"  {DIM}{'─'*20} {'─'*8} {'─'*8} {'─'*12}{RESET}"))
+
+        for r in results:
+            if r.get("status") == "error":
+                print(box_line(f"  {r.get('label','?'):<20} {r.get('cat','?'):<8} {RED}  ERREUR{RESET}"))
+                continue
+            if r.get("status") == "timeout":
+                print(box_line(f"  {r.get('label','?'):<20} {r.get('cat','?'):<8} {RED}{r.get('time_s',0):>7.0f}s    TIMEOUT{RESET}"))
+                continue
+
+            lbl = r.get("label", "?")
+            cat = r.get("cat", "?")
+            ts = r.get("time_s", 0)
+            tok_s = r.get("tok_s", 0)
+
+            cat_color = BLUE if cat == "coding" else MAGENTA
+            if tok_s > 20:
+                speed_color = GREEN
+            elif tok_s > 8:
+                speed_color = YELLOW
+            else:
+                speed_color = RED
+
+            print(box_line(f"  {lbl:<20} {cat_color}{cat:<8}{RESET} {ts:>7.1f}s {speed_color}{tok_s:>8.1f} tok/s{RESET}"))
+
+        print(box_empty())
+
+    # Scores UX
+    if status == "done" and (coding_score > 0 or doc_score > 0):
+        print(box_mid())
+        print(box_empty())
+        print(box_line(f"  {BOLD}Scores UX{RESET}"))
+        print(box_empty())
+
+        if coding_score > 0:
+            c = ux_color(coding_score)
+            print(box_line(f"  {BLUE}Coding{RESET}          {c}{BOLD}{coding_score:>3}/100{RESET}  {c}{ux_label(coding_score)}{RESET}"))
+
+        if doc_score > 0:
+            c = ux_color(doc_score)
+            print(box_line(f"  {MAGENTA}Documentation{RESET}   {c}{BOLD}{doc_score:>3}/100{RESET}  {c}{ux_label(doc_score)}{RESET}"))
+
+        if overall_score > 0:
+            c = ux_color(overall_score)
+            print(box_line(f"  {'─'*25}"))
+            print(box_line(f"  {BOLD}Global{RESET}          {c}{BOLD}{overall_score:>3}/100{RESET}  {c}{BOLD}{ux_label(overall_score)}{RESET}"))
+
+        print(box_empty())
+
+    print(box_bot())
+
+    if status != "done":
+        print(f"\n  {DIM}Rafraîchissement auto... (Ctrl+C pour quitter){RESET}")
+    else:
+        print(f"\n  {GREEN}Benchmark terminé.{RESET} {DIM}Ctrl+C pour quitter.{RESET}")
+
+
+def main():
+    print(f"{BOLD}Gemma 4 Bench TUI{RESET}")
+    print(f"En attente : {DIM}{PROGRESS_FILE}{RESET}")
+    print(f"Lancez {BOLD}mise run test:bench -- <modèle>{RESET} dans un autre terminal")
+    print()
+
+    last_mtime = 0
+
+    try:
+        while True:
+            if os.path.exists(PROGRESS_FILE):
+                mtime = os.path.getmtime(PROGRESS_FILE)
+                if mtime != last_mtime:
+                    last_mtime = mtime
+                    try:
+                        with open(PROGRESS_FILE, 'r') as f:
+                            data = json.load(f)
+                        render(data)
+                    except (json.JSONDecodeError, KeyError):
+                        pass
+            time.sleep(REFRESH_INTERVAL)
+    except KeyboardInterrupt:
+        print(f"\n{DIM}TUI fermé.{RESET}")
+
+if __name__ == "__main__":
+    main()

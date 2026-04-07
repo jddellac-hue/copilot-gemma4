@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+#MISE description="Démarrer (ou redémarrer) un modèle en mémoire"
+set -euo pipefail
+
+MODEL="${1:-}"
+
+if [ -z "$MODEL" ]; then
+    echo "Usage: mise run model:start -- <modèle>"
+    echo ""
+    echo "Démarre le service ollama si nécessaire, décharge les autres"
+    echo "modèles de la RAM, et précharge le modèle demandé."
+    echo ""
+    echo "Modèles installés :"
+    ollama list 2>/dev/null | tail -n +2 || echo "  (aucun)"
+    echo ""
+    echo "Modèles en mémoire :"
+    curl -sf http://localhost:11434/api/ps 2>/dev/null | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+for m in d.get('models',[]):
+    print(f'  {m[\"name\"]:30} {m[\"size\"]/1e9:.1f} Go')
+if not d.get('models'): print('  (aucun)')
+" 2>/dev/null || echo "  (ollama non démarré)"
+    exit 1
+fi
+
+# Normaliser
+if [[ "$MODEL" != gemma4:* ]]; then
+    MODEL="gemma4:${MODEL}"
+fi
+
+# 1. Vérifier que ollama tourne
+if ! curl -sf http://localhost:11434/api/ps > /dev/null 2>&1; then
+    echo "[...] Démarrage du service ollama..."
+    sudo systemctl start ollama 2>/dev/null || nohup ollama serve &>/dev/null &
+    sleep 2
+    if curl -sf http://localhost:11434/api/ps > /dev/null 2>&1; then
+        echo "[OK] Service ollama démarré"
+    else
+        echo "[ERREUR] Impossible de démarrer ollama"
+        exit 1
+    fi
+else
+    echo "[OK] Service ollama actif"
+fi
+
+# 2. Vérifier que le modèle est installé
+if ! ollama list 2>/dev/null | grep -q "$MODEL"; then
+    echo "[ERREUR] $MODEL n'est pas installé"
+    echo "Lancez : mise run model:install -- $MODEL"
+    exit 1
+fi
+
+# 3. Décharger tous les modèles en mémoire
+echo "[...] Déchargement des modèles en mémoire..."
+LOADED=$(curl -sf http://localhost:11434/api/ps 2>/dev/null | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+for m in d.get('models',[]):
+    print(m['name'])
+" 2>/dev/null || true)
+
+for loaded in $LOADED; do
+    echo "  Déchargement de $loaded..."
+    curl -sf http://localhost:11434/api/generate \
+        -d "{\"model\":\"$loaded\",\"keep_alive\":0}" > /dev/null 2>&1 || true
+done
+sleep 2
+
+# 4. Précharger le modèle
+echo "[...] Chargement de $MODEL en mémoire..."
+curl -sf http://localhost:11434/api/generate \
+    -d "{\"model\":\"$MODEL\",\"keep_alive\":\"10m\"}" > /dev/null 2>&1
+
+# 5. Vérifier
+LOADED_NOW=$(curl -sf http://localhost:11434/api/ps 2>/dev/null | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+for m in d.get('models',[]):
+    print(f'{m[\"name\"]:30} {m[\"size\"]/1e9:.1f} Go  ctx:{m.get(\"context_length\",\"?\")}')
+" 2>/dev/null || echo "?")
+
+echo ""
+echo "[OK] $MODEL chargé"
+echo ""
+echo "En mémoire :"
+echo "  $LOADED_NOW"
+echo ""
+echo "Le modèle restera chargé 10 min. Utilisez chat ou agent pour l'utiliser."

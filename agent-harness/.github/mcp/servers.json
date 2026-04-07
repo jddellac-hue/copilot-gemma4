@@ -1,0 +1,63 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/specification/main/schema/mcp-config.schema.json",
+  "_comment": [
+    "MCP server registration for GitHub Copilot agent mode (VS Code / IntelliJ)",
+    "and any other MCP client. Each entry declares one server that the client",
+    "will spawn over stdio. The harness exposes its tool surface (filesystem,",
+    "bash, etc.) under the same permission policy as the standalone CLI.",
+    "",
+    "To use:",
+    "  1. Install the harness:  pip install -e .",
+    "  2. In VS Code: Copilot will auto-discover this file.",
+    "  3. In IntelliJ: configure GitHub Copilot to read this file, OR copy",
+    "     the entries below into the IDE-level MCP settings.",
+    "  4. Validate with `harness mcp-serve --profile config/profiles/dev.yaml`",
+    "     and check that `tools/list` returns the expected tools."
+  ],
+  "servers": {
+    "agent-harness-dev": {
+      "command": "harness",
+      "args": [
+        "mcp-serve",
+        "--profile",
+        "config/profiles/dev.yaml",
+        "--workspace",
+        "${workspaceFolder}"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      },
+      "description": "Local agent-harness exposing filesystem & sandboxed bash tools for the current workspace, dev profile (ask before mutations)."
+    },
+    "agent-harness-prod-ro": {
+      "command": "harness",
+      "args": [
+        "mcp-serve",
+        "--profile",
+        "config/profiles/prod-ro.yaml",
+        "--workspace",
+        "${workspaceFolder}"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      },
+      "description": "Read-only ops profile. Use this when investigating production from inside the IDE — no mutations possible."
+    },
+    "agent-harness-ops": {
+      "command": "harness",
+      "args": [
+        "mcp-serve",
+        "--profile",
+        "config/profiles/ops.yaml",
+        "--workspace",
+        "${workspaceFolder}"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "DT_API_TOKEN": "${env:DT_API_TOKEN}",
+        "CONCOURSE_TOKEN": "${env:CONCOURSE_TOKEN}"
+      },
+      "description": "Full ops investigation profile with Dynatrace, Kubernetes (locked context), runbook RAG and Concourse. Read-only by construction."
+    }
+  }
+}

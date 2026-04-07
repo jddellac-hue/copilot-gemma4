@@ -1,0 +1,24 @@
+id: 02-search-by-pattern
+category: fundamentals
+description: |
+  The agent must use search_files to enumerate files matching a glob and
+  report the count.
+
+fixture:
+  files:
+    "src/main/java/Foo.java": "class Foo {}"
+    "src/main/java/Bar.java": "class Bar {}"
+    "src/main/java/Baz.java": "class Baz {}"
+    "src/test/java/FooTest.java": "class FooTest {}"
+    "README.md": "Java project"
+
+prompt: |
+  How many `.java` files are in `src/main/java/`? Just the number.
+
+success:
+  type: contains
+  expected: "3"
+
+budget:
+  max_steps: 8
+  max_tokens: 5000

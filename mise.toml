@@ -1,0 +1,19 @@
+[env]
+# Modèles disponibles
+GEMMA4_MODELS = "26b e4b 31b"
+# Tags ollama correspondants
+GEMMA4_TAG_26b = "gemma4:26b"
+GEMMA4_TAG_e4b = "gemma4:e4b"
+GEMMA4_TAG_31b = "gemma4:31b"
+# Descriptions
+GEMMA4_DESC_26b = "26B A4B MoE Q4 (~18 Go RAM, 3.8B actifs, sweet spot)"
+GEMMA4_DESC_e4b = "E4B Q8 (~12 Go RAM, 4.5B actifs, léger et réactif)"
+GEMMA4_DESC_31b = "31B Dense Q4 (~20 Go RAM, 30.7B actifs, plus capable)"
+# Modèles par défaut pour chat et agent (modifiable via env)
+GEMMA4_CODING_MODEL = "gemma4:26b-a4b-it-q8_0"
+GEMMA4_DOC_MODEL = "gemma4:26b-a4b-it-q8_0"
+GEMMA4_GENERAL_MODEL = "gemma4:26b"
+# Python venv
+GEMMA4_VENV_DIR = "{{env.HOME}}/venvs/gemma4"
+# Prompt de test par défaut
+GEMMA4_TEST_PROMPT = "Explique en 2 phrases ce qu'est un transformer en deep learning."

@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+#MISE description="TUI : suivre les téléchargements de modèles en temps réel"
+
+import json
+import time
+import urllib.request
+import sys
+
+OLLAMA_API = "http://localhost:11434"
+REFRESH_INTERVAL = 1.0
+
+# Couleurs ANSI
+RESET   = "\033[0m"
+BOLD    = "\033[1m"
+DIM     = "\033[2m"
+GREEN   = "\033[32m"
+YELLOW  = "\033[33m"
+BLUE    = "\033[34m"
+CYAN    = "\033[36m"
+RED     = "\033[31m"
+
+def clear_screen():
+    sys.stdout.write("\033[2J\033[H")
+    sys.stdout.flush()
+
+def progress_bar(current, total, width=40):
+    if total == 0:
+        return "░" * width + "   ?%"
+    filled = int(width * current / total)
+    bar = "█" * filled + "░" * (width - filled)
+    pct = int(100 * current / total)
+    return f"{bar} {pct:3d}%"
+
+def format_size(bytes_val):
+    if bytes_val >= 1e9:
+        return f"{bytes_val/1e9:.1f} Go"
+    if bytes_val >= 1e6:
+        return f"{bytes_val/1e6:.0f} Mo"
+    return f"{bytes_val/1e3:.0f} Ko"
+
+def get_running_models():
+    try:
+        req = urllib.request.Request(f"{OLLAMA_API}/api/ps")
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            return json.loads(resp.read())
+    except:
+        return None
+
+def get_installed_models():
+    try:
+        req = urllib.request.Request(f"{OLLAMA_API}/api/tags")
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            return json.loads(resp.read())
+    except:
+        return None
+
+def render(installed, running):
+    clear_screen()
+
+    print(f"{BOLD}{CYAN}╔══════════════════════════════════════════════════════════════╗{RESET}")
+    print(f"{BOLD}{CYAN}║{RESET}  {BOLD}OLLAMA — MODÈLES GEMMA 4{RESET}                                    {BOLD}{CYAN}║{RESET}")
+    print(f"{BOLD}{CYAN}╠══════════════════════════════════════════════════════════════╣{RESET}")
+
+    # Modèles chargés en mémoire
+    print(f"{BOLD}{CYAN}║{RESET}")
+    print(f"{BOLD}{CYAN}║{RESET}  {BOLD}En mémoire{RESET}")
+
+    if running and running.get("models"):
+        for m in running["models"]:
+            name = m.get("name", "?")
+            size = m.get("size", 0)
+            vram = m.get("size_vram", 0)
+            ctx = m.get("context_length", 0)
+            expires = m.get("expires_at", "")
+
+            if vram > 0:
+                mem_str = f"VRAM: {format_size(vram)}"
+            else:
+                mem_str = f"RAM: {format_size(size)}"
+
+            print(f"{BOLD}{CYAN}║{RESET}    {GREEN}●{RESET} {BOLD}{name}{RESET}  {DIM}{mem_str}  ctx:{ctx}{RESET}")
+    else:
+        print(f"{BOLD}{CYAN}║{RESET}    {DIM}(aucun modèle chargé){RESET}")
+
+    # Modèles installés
+    print(f"{BOLD}{CYAN}║{RESET}")
+    print(f"{BOLD}{CYAN}╠══════════════════════════════════════════════════════════════╣{RESET}")
+    print(f"{BOLD}{CYAN}║{RESET}")
+    print(f"{BOLD}{CYAN}║{RESET}  {BOLD}Installés{RESET}")
+
+    loaded_names = set()
+    if running and running.get("models"):
+        loaded_names = {m["name"] for m in running["models"]}
+
+    if installed and installed.get("models"):
+        total_size = 0
+        for m in installed["models"]:
+            name = m.get("name", "?")
+            size = m.get("size", 0)
+            total_size += size
+            modified = m.get("modified_at", "")[:10]
+            quant = m.get("details", {}).get("quantization_level", "?")
+            params = m.get("details", {}).get("parameter_size", "?")
+
+            if name in loaded_names:
+                status = f"{GREEN}● chargé{RESET}"
+            else:
+                status = f"{DIM}○ disque{RESET}"
+
+            print(f"{BOLD}{CYAN}║{RESET}    {status}  {BOLD}{name:<28}{RESET} {format_size(size):>8}  {DIM}{quant:<8} {params:<6} {modified}{RESET}")
+
+        print(f"{BOLD}{CYAN}║{RESET}")
+        print(f"{BOLD}{CYAN}║{RESET}    {DIM}Total : {format_size(total_size)}{RESET}")
+    else:
+        print(f"{BOLD}{CYAN}║{RESET}    {DIM}(aucun modèle installé){RESET}")
+
+    # Espace disque
+    try:
+        stat = os.statvfs(os.path.expanduser("~"))
+        free_gb = (stat.f_bavail * stat.f_frsize) / (1024**3)
+        print(f"{BOLD}{CYAN}║{RESET}    {DIM}Disque disponible : {free_gb:.0f} Go{RESET}")
+    except:
+        pass
+
+    print(f"{BOLD}{CYAN}║{RESET}")
+    print(f"{BOLD}{CYAN}╚══════════════════════════════════════════════════════════════╝{RESET}")
+    print(f"\n  {DIM}Rafraîchissement auto... Ctrl+C pour quitter{RESET}")
+    print(f"  {DIM}Lancez 'mise run model:install -- <modèle>' dans un autre terminal{RESET}")
+
+
+import os
+
+def main():
+    print(f"{BOLD}Gemma 4 Install TUI{RESET}")
+    print(f"Connexion à ollama ({OLLAMA_API})...")
+
+    try:
+        while True:
+            installed = get_installed_models()
+            running = get_running_models()
+
+            if installed is not None:
+                render(installed, running)
+            else:
+                clear_screen()
+                print(f"{RED}Impossible de contacter ollama ({OLLAMA_API}){RESET}")
+                print(f"{DIM}Vérifiez que le service est démarré : sudo systemctl start ollama{RESET}")
+
+            time.sleep(REFRESH_INTERVAL)
+    except KeyboardInterrupt:
+        print(f"\n{DIM}TUI fermé.{RESET}")
+
+if __name__ == "__main__":
+    main()

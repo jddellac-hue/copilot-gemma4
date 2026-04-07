@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+#MISE description="Lister les modèles Gemma 4 installés"
+set -euo pipefail
+
+echo "=== Modèles installés ==="
+echo ""
+
+if ! command -v ollama &>/dev/null; then
+    echo "[ERREUR] ollama n'est pas installé. Lancez 'mise run prereqs:install'"
+    exit 1
+fi
+
+ollama list 2>/dev/null || echo "(aucun modèle installé)"
+
+echo ""
+echo "=== Modèles Gemma 4 disponibles ==="
+echo ""
+
+for key in $GEMMA4_MODELS; do
+    tag_var="GEMMA4_TAG_${key}"
+    desc_var="GEMMA4_DESC_${key}"
+    tag="${!tag_var}"
+    desc="${!desc_var}"
+
+    if ollama list 2>/dev/null | grep -q "$tag"; then
+        status="[installé]"
+    else
+        status="[non installé]"
+    fi
+
+    printf "  %-20s %-15s %s\n" "$tag" "$status" "$desc"
+done

@@ -1,0 +1,28 @@
+id: 01-read-and-report
+category: fundamentals
+description: |
+  The agent must locate a file by name and report a specific value from it.
+  Tests basic search, read, and answer extraction.
+
+fixture:
+  files:
+    "src/config.json": |
+      {
+        "service_name": "billing-engine",
+        "version": "3.14.2",
+        "max_connections": 250
+      }
+    "README.md": "# Billing engine\nSee src/config.json for settings.\n"
+
+prompt: |
+  What is the value of `max_connections` in the project's config? Answer
+  with just the number.
+
+success:
+  type: contains
+  expected: "250"
+  case_sensitive: false
+
+budget:
+  max_steps: 8
+  max_tokens: 5000

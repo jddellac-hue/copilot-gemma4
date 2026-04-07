@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  lint-and-type:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install project (dev extras)
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Ruff
+        run: ruff check src tests eval
+
+      - name: Mypy
+        run: mypy src
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    needs: lint-and-type
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install bubblewrap
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install project
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Run unit tests
+        run: pytest tests/unit -v --cov=harness --cov-report=term-missing
+
+      - name: Run integration tests (mocked model)
+        run: pytest tests/integration -v
+
+  eval-suite:
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    # Eval suite runs against a real Ollama instance. In CI we use a small
+    # model (gemma:2b) for speed and a deterministic temperature.
+    services:
+      ollama:
+        image: ollama/ollama:latest
+        ports:
+          - 11434:11434
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install bubblewrap
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+
+      - name: Install uv & project
+        run: |
+          pip install uv
+          uv pip install --system -e ".[dev]"
+
+      - name: Pull eval model
+        run: |
+          curl -fsS http://localhost:11434/api/pull \
+            -d '{"name":"gemma:2b-instruct"}' \
+            --max-time 600
+
+      - name: Run eval suite
+        env:
+          HARNESS_EVAL_MODEL: gemma:2b-instruct
+        run: harness eval --profile config/profiles/ci.yaml
+
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: eval/report.json

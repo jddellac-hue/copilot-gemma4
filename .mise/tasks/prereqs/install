@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+#MISE description="Installer les prérequis (ollama, GPU drivers, Python venv)"
+set -euo pipefail
+
+echo "=== Installation des prérequis pour Gemma 4 ==="
+echo ""
+
+# =============================================================================
+# 1. Paquets système de base
+# =============================================================================
+echo "[1/4] Paquets système..."
+PKGS_NEEDED=""
+for pkg in build-essential ca-certificates curl wget git python3 python3-venv python3-dev libssl-dev; do
+    if ! dpkg -s "$pkg" &>/dev/null; then
+        PKGS_NEEDED="$PKGS_NEEDED $pkg"
+    fi
+done
+
+if [ -n "$PKGS_NEEDED" ]; then
+    echo "  Installation de :$PKGS_NEEDED"
+    sudo apt-get update -qq
+    sudo apt-get install -y -qq $PKGS_NEEDED
+    echo "  [OK] Paquets installés"
+else
+    echo "  [OK] Tous les paquets requis sont présents"
+fi
+
+# =============================================================================
+# 2. Détection et configuration GPU
+# =============================================================================
+echo "[2/4] GPU..."
+GPU_MODE="cpu"
+
+if lspci | grep -qi "nvidia"; then
+    echo "  GPU NVIDIA détecté"
+
+    if command -v nvidia-smi &>/dev/null; then
+        DRIVER_VERSION=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
+        GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
+        GPU_VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader 2>/dev/null | head -1)
+        echo "  [OK] Driver $DRIVER_VERSION installé ($GPU_NAME, $GPU_VRAM)"
+        GPU_MODE="cuda"
+    else
+        echo "  [WARN] Driver NVIDIA non installé."
+        echo "  Pour installer : sudo apt install nvidia-driver-535"
+        echo "  Puis redémarrer et relancer cette task."
+    fi
+
+    # CUDA toolkit (optionnel, utile pour llama.cpp avec GPU)
+    if dpkg -s cuda-toolkit-12-1 &>/dev/null 2>&1 || dpkg -s cuda-toolkit &>/dev/null 2>&1; then
+        echo "  [OK] CUDA toolkit installé"
+    else
+        echo "  [INFO] CUDA toolkit non installé (optionnel pour ollama, requis pour llama.cpp GPU)"
+    fi
+elif lspci | grep -qi "AMD.*Radeon" && ! lspci | grep -qi "Vega"; then
+    # GPU AMD dédié (pas les iGPU Vega)
+    echo "  GPU AMD dédié détecté"
+    if command -v rocminfo &>/dev/null; then
+        echo "  [OK] ROCm installé"
+        GPU_MODE="rocm"
+    else
+        echo "  [INFO] ROCm non installé (optionnel)"
+    fi
+else
+    echo "  [OK] Mode CPU-only (pas de GPU dédié)"
+fi
+
+echo "  Mode sélectionné : $GPU_MODE"
+
+# =============================================================================
+# 3. Ollama
+# =============================================================================
+echo "[3/4] Ollama..."
+if command -v ollama &>/dev/null; then
+    echo "  [OK] ollama déjà installé : $(ollama --version 2>/dev/null || echo 'version inconnue')"
+else
+    echo "  [...] Installation d'ollama (nécessite sudo)..."
+    curl -fsSL https://ollama.com/install.sh | sudo sh
+    echo "  [OK] ollama installé : $(ollama --version 2>/dev/null)"
+fi
+
+# Vérifier que le service tourne
+if systemctl is-active --quiet ollama 2>/dev/null; then
+    echo "  [OK] Service ollama actif"
+else
+    echo "  [...] Démarrage du service ollama..."
+    sudo systemctl start ollama 2>/dev/null || {
+        nohup ollama serve &>/dev/null &
+        sleep 2
+    }
+    if pgrep -x ollama &>/dev/null || systemctl is-active --quiet ollama 2>/dev/null; then
+        echo "  [OK] Service ollama démarré"
+    else
+        echo "  [ERREUR] Impossible de démarrer ollama"
+        exit 1
+    fi
+fi
+
+# =============================================================================
+# 4. Environnement Python (pour transformers/torch en alternative)
+# =============================================================================
+echo "[4/4] Environnement Python..."
+
+VENV_DIR="${GEMMA4_VENV_DIR:-$HOME/venvs/gemma4}"
+
+if [ -d "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/activate" ]; then
+    echo "  [OK] Virtualenv existant : $VENV_DIR"
+else
+    echo "  [...] Création du virtualenv : $VENV_DIR"
+    mkdir -p "$(dirname "$VENV_DIR")"
+    python3 -m venv "$VENV_DIR"
+    echo "  [OK] Virtualenv créé"
+fi
+
+# Installation des paquets Python
+source "$VENV_DIR/bin/activate"
+echo "  [...] Mise à jour pip..."
+pip install --upgrade pip setuptools wheel -q
+
+echo "  [...] Installation des paquets ML..."
+if [ "$GPU_MODE" = "cuda" ]; then
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121 -q 2>/dev/null || \
+    pip install torch torchvision torchaudio -q
+else
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu -q
+fi
+
+pip install transformers accelerate safetensors sentencepiece huggingface_hub -q
+pip install llama-cpp-python -q 2>/dev/null || echo "  [WARN] llama-cpp-python : compilation échouée (normal sans CUDA toolkit)"
+
+deactivate
+echo "  [OK] Paquets Python installés dans $VENV_DIR"
+
+# =============================================================================
+# Résumé
+# =============================================================================
+echo ""
+echo "=== Prérequis installés ==="
+echo "  Mode        : $GPU_MODE"
+echo "  Ollama      : $(ollama --version 2>/dev/null)"
+echo "  Python venv : $VENV_DIR"
+echo ""
+echo "Prochaine étape : mise run model:evaluate"

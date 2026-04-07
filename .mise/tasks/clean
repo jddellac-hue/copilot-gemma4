@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+#MISE description="Nettoyage profond : modèles, cache, config, binaires ollama"
+set -euo pipefail
+
+echo "=== Nettoyage profond Gemma 4 ==="
+echo ""
+
+# Calculer l'espace avant
+DISK_BEFORE=$(df -BM --output=avail "$HOME" | tail -1 | tr -d ' M')
+
+# --- 1. Supprimer tous les modèles ollama ---
+if command -v ollama &>/dev/null; then
+    echo "[1/5] Suppression des modèles ollama..."
+    MODELS=$(ollama list 2>/dev/null | tail -n +2 | awk '{print $1}' || true)
+    if [ -n "$MODELS" ]; then
+        for m in $MODELS; do
+            echo "  Suppression de $m..."
+            ollama rm "$m" 2>/dev/null || true
+        done
+        echo "  [OK] Tous les modèles supprimés"
+    else
+        echo "  [OK] Aucun modèle à supprimer"
+    fi
+else
+    echo "[1/5] ollama non installé, skip"
+fi
+
+# --- 2. Arrêter le service ollama ---
+echo "[2/5] Arrêt du service ollama..."
+sudo systemctl stop ollama 2>/dev/null || true
+sudo systemctl disable ollama 2>/dev/null || true
+pkill -x ollama 2>/dev/null || true
+echo "  [OK] Service arrêté"
+
+# --- 3. Supprimer les données ollama ---
+echo "[3/5] Suppression des données ollama..."
+OLLAMA_DIRS=(
+    "$HOME/.ollama"
+    "/usr/share/ollama/.ollama"
+    "/tmp/ollama"
+)
+for dir in "${OLLAMA_DIRS[@]}"; do
+    if [ -d "$dir" ]; then
+        SIZE=$(du -sh "$dir" 2>/dev/null | awk '{print $1}')
+        echo "  Suppression de $dir ($SIZE)..."
+        sudo rm -rf "$dir"
+    fi
+done
+echo "  [OK] Données supprimées"
+
+# --- 4. Supprimer le binaire et le service ollama ---
+echo "[4/5] Suppression du binaire ollama..."
+sudo rm -f /usr/local/bin/ollama
+sudo rm -f /etc/systemd/system/ollama.service
+sudo systemctl daemon-reload 2>/dev/null || true
+if id ollama &>/dev/null; then
+    sudo userdel -r ollama 2>/dev/null || true
+    sudo groupdel ollama 2>/dev/null || true
+fi
+echo "  [OK] Binaire et service supprimés"
+
+# --- 5. Supprimer les virtualenvs Python ---
+echo "[5/6] Virtualenvs Python..."
+for vdir in "${GEMMA4_VENV_DIR:-$HOME/venvs/gemma4}" "$HOME/venvs/gemma4-cpu" "$HOME/venvs/gemma4"; do
+    if [ -d "$vdir" ]; then
+        SIZE=$(du -sh "$vdir" 2>/dev/null | awk '{print $1}')
+        echo "  Suppression de $vdir ($SIZE)..."
+        rm -rf "$vdir"
+    fi
+done
+# Venv embarqué dans le repo
+if [ -d ".venv_gemma" ]; then
+    SIZE=$(du -sh ".venv_gemma" 2>/dev/null | awk '{print $1}')
+    echo "  Suppression de .venv_gemma ($SIZE)..."
+    rm -rf ".venv_gemma"
+fi
+echo "  [OK] Virtualenvs supprimés"
+
+# --- 6. Nettoyer les caches système ---
+echo "[6/6] Nettoyage des caches..."
+# Cache HuggingFace (si utilisé)
+HF_CACHE="$HOME/.cache/huggingface"
+if [ -d "$HF_CACHE" ]; then
+    SIZE=$(du -sh "$HF_CACHE" 2>/dev/null | awk '{print $1}')
+    read -rp "  Supprimer le cache HuggingFace ($HF_CACHE, $SIZE) ? [o/N] " CONFIRM
+    if [[ "$CONFIRM" =~ ^[oOyY]$ ]]; then
+        rm -rf "$HF_CACHE"
+        echo "  [OK] Cache HuggingFace supprimé"
+    else
+        echo "  [SKIP] Cache HuggingFace conservé"
+    fi
+fi
+echo "  [OK] Caches nettoyés"
+
+# --- Résultat ---
+DISK_AFTER=$(df -BM --output=avail "$HOME" | tail -1 | tr -d ' M')
+FREED=$((DISK_AFTER - DISK_BEFORE))
+
+echo ""
+echo "=== Nettoyage terminé ==="
+echo "Espace récupéré : ~${FREED} Mo"
+echo "Espace disponible : $((DISK_AFTER / 1024)) Go"
+echo ""
+echo "La machine est propre. Pour réinstaller : mise run prereqs:install"

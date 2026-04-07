@@ -1,0 +1,95 @@
+# =============================================================================
+# Profile: gemma4-doc
+# =============================================================================
+# Agent de documentation avec Gemma 4 26B MoE Q8.
+# Rapide et fluide pour générer du volume, bonne qualité linguistique.
+# =============================================================================
+
+name: gemma4-doc
+profile_type: coding
+log_level: INFO
+
+# -----------------------------------------------------------------------------
+# Model — Gemma 4 26B A4B MoE Q8 (rapide, bon pour le texte)
+# -----------------------------------------------------------------------------
+model:
+  provider: ollama
+  endpoint: http://localhost:11434
+  name: gemma4:26b-a4b-it-q8_0
+  temperature: 0.3                # un peu plus créatif pour la doc
+  num_ctx: 32768
+
+# -----------------------------------------------------------------------------
+# Agent loop
+# -----------------------------------------------------------------------------
+agent:
+  max_steps: 20
+  token_budget: 100000            # budget large pour les longs documents
+  wall_clock_timeout_s: 600
+  repetition_threshold: 3
+
+# -----------------------------------------------------------------------------
+# Memory
+# -----------------------------------------------------------------------------
+memory:
+  soft_budget_tokens: 8000
+  long_term_path: ~/.local/share/agent-harness/notes-doc.md
+
+# -----------------------------------------------------------------------------
+# Sandbox
+# -----------------------------------------------------------------------------
+sandbox:
+  backend: bubblewrap
+  allow_network: false
+  max_output_bytes: 65536         # sorties plus longues pour la doc
+
+# -----------------------------------------------------------------------------
+# Permissions — plus permissif en écriture, pas de bash
+# -----------------------------------------------------------------------------
+permissions:
+  default: ask
+  audit_log_path: ~/.local/share/agent-harness/audit-doc.jsonl
+
+  rules:
+    # ---- Read: always safe ----
+    - tool: read_file
+      decision: allow
+    - tool: list_dir
+      decision: allow
+    - tool: search_files
+      decision: allow
+
+    # ---- Write: allow (la doc écrit beaucoup) ----
+    - tool: write_file
+      decision: allow
+      patterns_deny:
+        - "\\.ssh/"
+        - "\\.aws/"
+        - "\\.kube/"
+        - "\\.gnupg/"
+        - "/etc/"
+        - "/usr/"
+
+    - tool: edit_file
+      decision: allow
+      patterns_deny:
+        - "\\.ssh/"
+        - "\\.aws/"
+        - "\\.kube/"
+        - "/etc/"
+
+    # ---- Bash: deny (pas besoin pour de la doc) ----
+    - tool: bash
+      decision: deny
+
+    # ---- Catch-all ----
+    - tool: "*"
+      decision: ask
+
+# -----------------------------------------------------------------------------
+# Observability
+# -----------------------------------------------------------------------------
+observability:
+  enabled: false
+  service_name: agent-harness-gemma4-doc
+  otlp_endpoint: http://localhost:4317

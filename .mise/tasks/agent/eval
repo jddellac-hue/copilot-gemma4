@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+#MISE description="Lancer la suite d'évaluation du harness (7 tâches)"
+set -euo pipefail
+
+ROLE="${1:-coding}"
+HARNESS_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}/agent-harness"
+
+case "$ROLE" in
+    coding) PROFILE="$HARNESS_DIR/config/profiles/gemma4-coding.yaml" ;;
+    doc)    PROFILE="$HARNESS_DIR/config/profiles/gemma4-doc.yaml" ;;
+    *)
+        echo "Usage: mise run agent:eval -- [coding|doc]"
+        exit 1
+        ;;
+esac
+
+echo "=== Évaluation agent-harness ($ROLE) ==="
+echo "Profil : $PROFILE"
+echo ""
+
+source "$HARNESS_DIR/.venv/bin/activate"
+exec harness eval --profile "$PROFILE"

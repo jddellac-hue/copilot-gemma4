@@ -1,0 +1,28 @@
+id: 03-edit-file
+category: coding
+description: |
+  The agent must locate a constant in a file and update its value using
+  edit_file (str-replace). Verifies surgical editing capability.
+
+fixture:
+  files:
+    "app.py": |
+      MAX_RETRIES = 3
+      TIMEOUT = 30
+
+      def main():
+          print("retries:", MAX_RETRIES)
+
+prompt: |
+  Update `MAX_RETRIES` in `app.py` to 5. Do not change anything else.
+
+success:
+  type: bash
+  command: |
+    grep -q "^MAX_RETRIES = 5$" app.py && \
+    grep -q "^TIMEOUT = 30$" app.py && \
+    grep -q 'print("retries:", MAX_RETRIES)' app.py
+
+budget:
+  max_steps: 10
+  max_tokens: 8000

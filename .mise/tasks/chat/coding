@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Chat interactif avec l'agent coding (gemma4:26b-a4b-it-q8_0)"
+set -euo pipefail
+REPO_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+exec python3 "$REPO_DIR/scripts/chat.py" coding

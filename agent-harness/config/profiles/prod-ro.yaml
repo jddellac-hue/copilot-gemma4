@@ -1,0 +1,77 @@
+# =============================================================================
+# Profile: prod-ro
+# =============================================================================
+# Production READ-ONLY ops profile. Used by the ops agent profile to
+# investigate incidents without any risk of mutation.
+# =============================================================================
+
+name: prod-ro
+profile_type: ops
+log_level: INFO
+
+model:
+  provider: ollama
+  endpoint: http://localhost:11434
+  name: gemma:7b-instruct
+  temperature: 0.1
+  num_ctx: 8192
+
+agent:
+  max_steps: 30
+  token_budget: 80000
+  wall_clock_timeout_s: 900
+  repetition_threshold: 3
+
+memory:
+  soft_budget_tokens: 6000
+  long_term_path: ~/.local/share/agent-harness/notes-prod-ro.md
+
+sandbox:
+  backend: bubblewrap
+  allow_network: true        # ops agent needs to query Dynatrace, Loki, Prom
+  max_output_bytes: 32768
+  extra_ro_binds:
+    - /etc/ssl/certs
+
+permissions:
+  default: deny
+  audit_log_path: ~/.local/share/agent-harness/audit-prod-ro.jsonl
+
+  rules:
+    # Read-only filesystem inside the workspace
+    - tool: read_file
+      decision: allow
+    - tool: list_dir
+      decision: allow
+    - tool: search_files
+      decision: allow
+
+    # No write operations at all
+    - tool: write_file
+      decision: deny
+    - tool: edit_file
+      decision: deny
+
+    # Bash strictly limited to a known-safe read-only set
+    - tool: bash
+      decision: ask
+      patterns_deny:
+        # Anything that mutates
+        - "\\brm\\b"
+        - "\\bmv\\b"
+        - "\\bcp\\b"
+        - "\\bchmod\\b"
+        - "\\bchown\\b"
+        - "\\bdd\\b"
+        - "\\bmkfs\\b"
+        - "\\btouch\\b"
+        - ">\\s"
+        - ">>\\s"
+        - "\\bsudo\\b"
+        - "\\bkubectl\\s+(apply|delete|create|edit|patch|scale|rollout|exec)"
+        - "\\bhelm\\s+(install|upgrade|uninstall|delete|rollback)"
+        - "\\bterraform\\s+(apply|destroy)"
+        - "\\bgit\\s+(push|commit|reset|rebase|merge)"
+
+    - tool: "*"
+      decision: ask

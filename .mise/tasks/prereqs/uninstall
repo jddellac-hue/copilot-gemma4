@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+#MISE description="Désinstaller les prérequis (ollama, Python venv)"
+set -euo pipefail
+
+echo "=== Désinstallation des prérequis ==="
+
+# --- 1. Ollama ---
+echo "[1/2] Ollama..."
+if command -v ollama &>/dev/null; then
+    # Modèles restants ?
+    MODELS=$(ollama list 2>/dev/null | tail -n +2 | awk '{print $1}' || true)
+    if [ -n "$MODELS" ]; then
+        echo "  [WARN] Modèles encore installés :"
+        echo "$MODELS" | sed 's/^/    /'
+        echo ""
+        read -rp "  Supprimer tous les modèles ? [o/N] " CONFIRM
+        if [[ "$CONFIRM" =~ ^[oOyY]$ ]]; then
+            for m in $MODELS; do
+                echo "  Suppression de $m..."
+                ollama rm "$m" 2>/dev/null || true
+            done
+        fi
+    fi
+
+    echo "  [...] Arrêt et suppression d'ollama..."
+    sudo systemctl stop ollama 2>/dev/null || true
+    sudo systemctl disable ollama 2>/dev/null || true
+    pkill -x ollama 2>/dev/null || true
+    sudo rm -f /usr/local/bin/ollama
+    sudo rm -f /etc/systemd/system/ollama.service
+    sudo systemctl daemon-reload 2>/dev/null || true
+
+    if id ollama &>/dev/null; then
+        sudo userdel -r ollama 2>/dev/null || true
+        sudo groupdel ollama 2>/dev/null || true
+    fi
+    echo "  [OK] ollama désinstallé"
+else
+    echo "  [OK] ollama n'est pas installé"
+fi
+
+# --- 2. Python venv ---
+echo "[2/2] Environnement Python..."
+VENV_DIR="${GEMMA4_VENV_DIR:-$HOME/venvs/gemma4}"
+
+if [ -d "$VENV_DIR" ]; then
+    SIZE=$(du -sh "$VENV_DIR" 2>/dev/null | awk '{print $1}')
+    read -rp "  Supprimer le virtualenv $VENV_DIR ($SIZE) ? [o/N] " CONFIRM
+    if [[ "$CONFIRM" =~ ^[oOyY]$ ]]; then
+        rm -rf "$VENV_DIR"
+        echo "  [OK] Virtualenv supprimé"
+    else
+        echo "  [SKIP] Virtualenv conservé"
+    fi
+else
+    echo "  [OK] Pas de virtualenv à supprimer"
+fi
+
+echo ""
+echo "=== Désinstallation terminée ==="
+echo "Note : les données des modèles dans ~/.ollama ne sont PAS supprimées."
+echo "Pour tout nettoyer, lancez 'mise run clean'."

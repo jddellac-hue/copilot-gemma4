@@ -1,0 +1,182 @@
+# =============================================================================
+# Profile: ops
+# =============================================================================
+# Full-featured ops investigation profile. Wires all four ops integrations:
+# Dynatrace, Kubernetes (read-only on a single locked context), runbook
+# RAG, and Concourse CI.
+#
+# This profile is read-mostly: filesystem reads are allowed, mutations to
+# the workspace require confirmation, and ALL ops tools are network-only
+# and observation-only. There is no path through this profile that mutates
+# Kubernetes, Dynatrace, Concourse or any monitored system.
+#
+# Tokens are loaded from environment variables, never stored in the file.
+# Required env vars when fully enabled:
+#   DT_API_TOKEN          — Dynatrace API token (read scope sufficient)
+#   CONCOURSE_TOKEN       — Concourse bearer token
+# =============================================================================
+
+name: ops
+profile_type: ops
+log_level: INFO
+
+model:
+  provider: ollama
+  endpoint: http://localhost:11434
+  name: gemma:7b-instruct
+  temperature: 0.1            # ops queries should be precise, not creative
+  num_ctx: 8192
+
+agent:
+  max_steps: 30
+  token_budget: 80000
+  wall_clock_timeout_s: 900
+  repetition_threshold: 3
+
+memory:
+  soft_budget_tokens: 6500
+  long_term_path: ~/.local/share/agent-harness/notes-ops.md
+
+sandbox:
+  backend: bubblewrap
+  allow_network: true         # ops tools call APIs (Dynatrace, Concourse)
+  max_output_bytes: 32768
+  extra_ro_binds:
+    - /etc/ssl/certs
+
+# -----------------------------------------------------------------------------
+# Ops tools — each block is opt-in via `enabled: true`
+# -----------------------------------------------------------------------------
+ops_tools:
+
+  # ---- Dynatrace ----------------------------------------------------------
+  dynatrace:
+    enabled: true
+    tenant_url: https://CHANGE-ME.live.dynatrace.com
+    token_env: DT_API_TOKEN
+    # If your tenant is Grail-enabled, the default endpoints work as is.
+    # For classic Managed/SaaS API v2 only, override:
+    #   dql_endpoint: /api/v2/dql/query/execute
+    #   dql_poll_endpoint: /api/v2/dql/query/poll
+    default_time_range: now-1h
+    timeout_s: 30
+    max_rows: 1000
+
+  # ---- Kubernetes — context and namespaces are LOCKED at this layer ------
+  # The model cannot pick another context. To investigate another cluster,
+  # the operator switches profile (ops-staging.yaml, ops-prod.yaml, ...).
+  # This is intentional: it makes accidental cross-cluster reads impossible.
+  kubernetes:
+    enabled: true
+    kubectl_path: kubectl
+    context: CHANGE-ME-staging-cluster   # MUST match a `kubectl config get-contexts` entry
+    allowed_namespaces:
+      - default
+      - kube-system
+      - app-frontend
+      - app-backend
+      - billing
+      - monitoring
+    locked_namespace: null               # set to a string to force a single namespace
+    default_namespace: default
+    timeout_s: 30
+    max_log_lines: 500
+
+  # ---- Runbook RAG -------------------------------------------------------
+  runbooks:
+    enabled: true
+    path: ~/runbooks                     # directory of internal markdown runbooks
+    collection_name: ops_runbooks
+    persist_dir: ~/.local/share/agent-harness/chroma
+    chunk_size: 800
+    chunk_overlap: 100
+    glob: "**/*.md"
+    max_results: 5
+
+  # ---- Concourse CI ------------------------------------------------------
+  concourse:
+    enabled: true
+    base_url: https://CHANGE-ME-concourse.example.com
+    team: main
+    token_env: CONCOURSE_TOKEN
+    timeout_s: 30
+    max_log_chars: 32768
+    max_builds: 50
+
+# -----------------------------------------------------------------------------
+# Permissions
+# -----------------------------------------------------------------------------
+# All ops tools are read-only by construction (no `kubectl apply`, no DQL
+# write, no Concourse trigger). The permission policy below mirrors that:
+# they are explicitly allowed without further checks. Filesystem write is
+# `ask`, bash is `ask` with deny patterns.
+# -----------------------------------------------------------------------------
+permissions:
+  default: ask
+  audit_log_path: ~/.local/share/agent-harness/audit-ops.jsonl
+
+  rules:
+    # Filesystem reads
+    - tool: read_file
+      decision: allow
+    - tool: list_dir
+      decision: allow
+    - tool: search_files
+      decision: allow
+
+    # Filesystem writes — only if explicitly confirmed, with hard denies
+    - tool: write_file
+      decision: ask
+      patterns_deny:
+        - "\\.ssh/"
+        - "\\.aws/"
+        - "\\.kube/"
+        - "/etc/"
+    - tool: edit_file
+      decision: ask
+      patterns_deny:
+        - "\\.ssh/"
+        - "\\.aws/"
+        - "\\.kube/"
+
+    # Bash — gated, no destructive ops
+    - tool: bash
+      decision: ask
+      patterns_deny:
+        - "\\brm\\s+-rf?\\s+/"
+        - "\\bsudo\\b"
+        - "\\bkubectl\\s+(apply|delete|create|edit|patch|scale|rollout|exec)"
+        - "\\bhelm\\s+(install|upgrade|uninstall|delete|rollback)"
+        - "\\bgit\\s+push\\b"
+        - "\\|\\s*(sh|bash)\\b"
+
+    # Ops tools — all read-only by construction
+    - tool: dynatrace_dql
+      decision: allow
+    - tool: dynatrace_problems
+      decision: allow
+    - tool: dynatrace_entity_search
+      decision: allow
+    - tool: kubectl_get
+      decision: allow
+    - tool: kubectl_describe
+      decision: allow
+    - tool: kubectl_logs
+      decision: allow
+    - tool: search_runbooks
+      decision: allow
+    - tool: concourse_pipelines
+      decision: allow
+    - tool: concourse_builds
+      decision: allow
+    - tool: concourse_build_logs
+      decision: allow
+
+    # Catch-all
+    - tool: "*"
+      decision: ask
+
+observability:
+  enabled: true
+  service_name: agent-harness-ops
+  otlp_endpoint: http://localhost:4317

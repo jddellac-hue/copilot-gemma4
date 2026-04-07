@@ -1,0 +1,112 @@
+# =============================================================================
+# Profile: gemma4-coding
+# =============================================================================
+# Agent de développement avec Gemma 4 31B Dense Q8.
+# Qualité maximale, tolérance à la latence (CPU-only).
+# =============================================================================
+
+name: gemma4-coding
+profile_type: coding
+log_level: INFO
+
+# -----------------------------------------------------------------------------
+# Model — Gemma 4 26B A4B MoE Q8 (meilleur rapport qualité/vitesse en CPU)
+# Le 31B Dense est trop lent en CPU-only (~0 tok/s utilisable)
+# -----------------------------------------------------------------------------
+model:
+  provider: ollama
+  endpoint: http://localhost:11434
+  name: gemma4:26b-a4b-it-q8_0
+  temperature: 0.2
+  num_ctx: 32768
+
+# -----------------------------------------------------------------------------
+# Agent loop — patience accrue pour le 31B en CPU
+# -----------------------------------------------------------------------------
+agent:
+  max_steps: 30
+  token_budget: 80000
+  wall_clock_timeout_s: 600       # 10 min (MoE ~30 tok/s en CPU)
+  repetition_threshold: 3
+
+# -----------------------------------------------------------------------------
+# Memory
+# -----------------------------------------------------------------------------
+memory:
+  soft_budget_tokens: 8000
+  long_term_path: ~/.local/share/agent-harness/notes-coding.md
+
+# -----------------------------------------------------------------------------
+# Sandbox
+# -----------------------------------------------------------------------------
+sandbox:
+  backend: bubblewrap
+  allow_network: false
+  max_output_bytes: 32768
+  extra_ro_binds: []
+
+# -----------------------------------------------------------------------------
+# Permissions
+# -----------------------------------------------------------------------------
+permissions:
+  default: ask
+  audit_log_path: ~/.local/share/agent-harness/audit-coding.jsonl
+
+  rules:
+    # ---- Read-only: always safe ----
+    - tool: read_file
+      decision: allow
+    - tool: list_dir
+      decision: allow
+    - tool: search_files
+      decision: allow
+
+    # ---- Write: ask, deny sensitive paths ----
+    - tool: write_file
+      decision: ask
+      patterns_deny:
+        - "\\.ssh/"
+        - "\\.aws/"
+        - "\\.kube/"
+        - "\\.gnupg/"
+        - "/etc/"
+        - "/usr/"
+        - "id_rsa"
+        - "id_ed25519"
+
+    - tool: edit_file
+      decision: ask
+      patterns_deny:
+        - "\\.ssh/"
+        - "\\.aws/"
+        - "\\.kube/"
+        - "/etc/"
+
+    # ---- Bash: ask, deny dangerous patterns ----
+    - tool: bash
+      decision: ask
+      patterns_deny:
+        - "\\brm\\s+-rf?\\s+/"
+        - "\\brm\\s+-rf?\\s+\\*"
+        - "\\bmkfs\\b"
+        - "\\bsudo\\b"
+        - "\\bsu\\b"
+        - "\\|\\s*(sh|bash)\\b"
+        - "git\\s+push\\s+.*--force"
+        - "git\\s+reset\\s+--hard"
+        - "chmod\\s+-R\\s+777"
+      patterns_ask:
+        - "git\\s+push"
+        - "pip\\s+install"
+
+    # ---- Catch-all ----
+    - tool: "*"
+      decision: ask
+
+# -----------------------------------------------------------------------------
+# Observability
+# -----------------------------------------------------------------------------
+observability:
+  enabled: false                  # activer si Jaeger/Dynatrace disponible
+  service_name: agent-harness-gemma4-coding
+  otlp_endpoint: http://localhost:4317

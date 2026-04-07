@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+#MISE description="Lister les modèles disponibles, installés, et évaluer la compatibilité"
+set -euo pipefail
+
+# =============================================================================
+# 1. Détection hardware
+# =============================================================================
+echo "=== Configuration machine ==="
+echo ""
+
+CPU_MODEL=$(lscpu | grep "Nom de modèle\|Model name" | head -1 | sed 's/.*:\s*//')
+CPU_CORES=$(nproc)
+echo "CPU       : $CPU_MODEL ($CPU_CORES threads)"
+
+RAM_TOTAL_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+RAM_TOTAL_GB=$((RAM_TOTAL_KB / 1024 / 1024))
+RAM_AVAIL_KB=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+RAM_AVAIL_GB=$((RAM_AVAIL_KB / 1024 / 1024))
+echo "RAM       : ${RAM_AVAIL_GB} Go dispo / ${RAM_TOTAL_GB} Go total"
+
+GPU_VRAM=0
+if command -v nvidia-smi &>/dev/null; then
+    GPU_INFO=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null || echo "")
+    if [ -n "$GPU_INFO" ]; then
+        echo "GPU       : $GPU_INFO"
+        GPU_VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
+    fi
+else
+    echo "GPU       : Aucun GPU dédié (CPU-only)"
+fi
+
+DISK_AVAIL=$(df -BG --output=avail "$HOME" | tail -1 | tr -d ' G')
+echo "Disque    : ${DISK_AVAIL} Go disponibles"
+echo ""
+
+# =============================================================================
+# 2. Récupérer les modèles disponibles en ligne
+# =============================================================================
+echo "=== Modèles Gemma 4 disponibles (ollama) ==="
+echo ""
+
+# Scrape de la page ollama pour lister les tags et tailles
+ONLINE_DATA=$(curl -sf "https://ollama.com/library/gemma4/tags" 2>/dev/null | python3 -c "
+import sys, re
+html = sys.stdin.read()
+pattern = r'class=\"group-hover:underline\">gemma4:([^<]+)</a>.*?<p class=\"col-span-2 text-neutral-500 text-\[13px\]\">([^<]+)</p>'
+matches = re.findall(pattern, html, re.DOTALL)
+seen = set()
+for tag, size in matches:
+    tag = tag.strip()
+    size = size.strip()
+    if tag not in seen:
+        seen.add(tag)
+        print(f'{tag}|{size}')
+" 2>/dev/null || echo "")
+
+if [ -z "$ONLINE_DATA" ]; then
+    echo "[WARN] Impossible de récupérer la liste en ligne. Liste locale uniquement."
+    ONLINE_DATA=""
+fi
+
+# Récupérer les modèles installés localement
+INSTALLED=$(ollama list 2>/dev/null | tail -n +2 | awk '{print $1}' || true)
+
+# Base de données de RAM requise par tag (en Go)
+# Format: tag|ram_requise|params_actifs|description
+declare -A MODEL_DB
+MODEL_DB["latest"]="12|4.5B|Alias de e4b"
+MODEL_DB["e2b"]="8|2.3B|Ultra léger, multimodal (texte+image+audio)"
+MODEL_DB["e4b"]="12|4.5B|Léger et réactif, multimodal (texte+image+audio)"
+MODEL_DB["26b"]="18|3.8B (MoE)|Sweet spot MoE, qualité proche du 31B"
+MODEL_DB["31b"]="22|30.7B|Plus capable, dense, lent en CPU"
+MODEL_DB["e2b-it-q4_K_M"]="6|2.3B|E2B quantifié Q4"
+MODEL_DB["e2b-it-q8_0"]="8|2.3B|E2B quantifié Q8"
+MODEL_DB["e2b-it-bf16"]="12|2.3B|E2B pleine précision"
+MODEL_DB["e4b-it-q4_K_M"]="10|4.5B|E4B quantifié Q4"
+MODEL_DB["e4b-it-q8_0"]="14|4.5B|E4B quantifié Q8"
+MODEL_DB["e4b-it-bf16"]="18|4.5B|E4B pleine précision"
+MODEL_DB["26b-a4b-it-q4_K_M"]="18|3.8B (MoE)|26B MoE quantifié Q4"
+MODEL_DB["26b-a4b-it-q8_0"]="30|3.8B (MoE)|26B MoE quantifié Q8"
+MODEL_DB["31b-cloud"]="0|30.7B|Cloud only"
+MODEL_DB["31b-it-q4_K_M"]="22|30.7B|31B quantifié Q4"
+MODEL_DB["31b-it-q8_0"]="36|30.7B|31B quantifié Q8"
+MODEL_DB["31b-it-bf16"]="64|30.7B|31B pleine précision"
+
+# Affichage
+printf "  %-28s %-10s %-10s %-12s %-6s %s\n" "MODÈLE" "TAILLE" "RAM req." "COMPATIB." "LOCAL" "DESCRIPTION"
+printf "  %-28s %-10s %-10s %-12s %-6s %s\n" "------" "------" "--------" "---------" "-----" "-----------"
+
+BEST=""
+BEST_TAG=""
+BEST_SCORE=0
+
+while IFS='|' read -r tag size; do
+    [ -z "$tag" ] && continue
+
+    # Statut installé
+    if echo "$INSTALLED" | grep -q "gemma4:${tag}"; then
+        local_status="OUI"
+    else
+        local_status="-"
+    fi
+
+    # RAM requise et description depuis la DB
+    db_entry="${MODEL_DB[$tag]:-}"
+    if [ -n "$db_entry" ]; then
+        IFS='|' read -r ram_req params desc <<< "$db_entry"
+    else
+        ram_req="?"
+        params="?"
+        desc="Variante non référencée"
+    fi
+
+    # Skip les modèles cloud-only
+    if [[ "$tag" == *"-cloud"* ]] || [[ "$size" == "-" ]]; then
+        printf "  %-28s %-10s %-10s %-12s %-6s %s\n" \
+            "gemma4:${tag}" "$size" "-" "cloud only" "-" "Exécution cloud uniquement"
+        continue
+    fi
+
+    # Extraire la taille disque en Go (ex: "9.6GB" -> 10, "18GB" -> 18)
+    disk_go=$(echo "$size" | grep -oP '[0-9.]+' | head -1 | awk '{printf "%d\n", $1 + 0.5}' 2>/dev/null || echo "0")
+    disk_go=${disk_go:-0}
+
+    # Vérifier que disk_go est bien un nombre
+    if [[ "$tag" == *"-cloud"* ]]; then
+        printf "  %-28s %-10s %-10s %-12s %-6s %s\n" \
+            "gemma4:${tag}" "$size" "-" "cloud only" "-" "Exécution cloud uniquement"
+        continue
+    fi
+
+    # Score de compatibilité (0-100%)
+    if [ "$ram_req" = "?" ]; then
+        compat="?"
+        score=0
+    else
+        if [ "$RAM_AVAIL_GB" -ge "$((ram_req + 10))" ] && [ "$DISK_AVAIL" -ge "$((disk_go + 5))" ]; then
+            compat="100%"
+            score=100
+        elif [ "$RAM_AVAIL_GB" -ge "$ram_req" ] && [ "$DISK_AVAIL" -ge "$disk_go" ]; then
+            # Score proportionnel à la marge de RAM
+            margin=$((RAM_AVAIL_GB - ram_req))
+            score=$((80 + margin * 2))
+            [ "$score" -gt 99 ] && score=99
+            compat="${score}%"
+        elif [ "$RAM_TOTAL_GB" -ge "$ram_req" ]; then
+            compat="~60% (RAM juste)"
+            score=60
+        else
+            compat="0% (insuffisant)"
+            score=0
+        fi
+    fi
+
+    # Meilleur modèle (privilégier MoE en CPU-only)
+    effective_score=$score
+    if [ "$GPU_VRAM" -eq 0 ] 2>/dev/null; then
+        # Bonus pour les MoE en CPU-only (moins de params actifs = plus rapide)
+        case "$tag" in
+            26b|26b-a4b-it-*) effective_score=$((effective_score + 15)) ;;
+            e4b|e4b-it-*|e2b|e2b-it-*) effective_score=$((effective_score + 10)) ;;
+        esac
+    fi
+    if [ "$effective_score" -gt "$BEST_SCORE" ] && [ "$score" -gt 0 ]; then
+        BEST_SCORE=$effective_score
+        BEST="gemma4:${tag}"
+        BEST_TAG="$tag"
+    fi
+
+    printf "  %-28s %-10s %-10s %-12s %-6s %s\n" \
+        "gemma4:${tag}" "$size" "${ram_req} Go" "$compat" "$local_status" "$desc"
+
+done <<< "$ONLINE_DATA"
+
+echo ""
+
+# =============================================================================
+# 3. Recommandation
+# =============================================================================
+echo "=== Recommandation ==="
+echo ""
+
+if [ -n "$BEST" ]; then
+    echo "Meilleur choix : $BEST"
+    echo ""
+    if [ "$GPU_VRAM" -eq 0 ] 2>/dev/null; then
+        echo "Mode CPU-only détecté."
+        echo "Les modèles MoE (26B A4B) sont privilégiés : moins de params actifs = plus rapide."
+    fi
+    echo ""
+    echo "Pour installer : mise run model:install -- $BEST"
+else
+    echo "[ERREUR] Aucun modèle compatible avec cette machine."
+fi
