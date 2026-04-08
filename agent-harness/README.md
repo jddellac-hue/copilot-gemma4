@@ -74,6 +74,26 @@ harness run --profile config/profiles/copilot.yaml --workspace . \
     "Find the largest file in this repo and tell me its size"
 ```
 
+## Workspace
+
+Le `--workspace` (ou le 2ème argument des tasks mise) définit le
+répertoire de travail de l'agent. L'agent peut lire, écrire et exécuter
+des commandes **uniquement** dans ce répertoire (enforced par le
+sandbox et les filesystem tools).
+
+```bash
+# Travailler dans le répertoire courant (par défaut)
+mise run agent:coding -- "Explique ce code"
+
+# Travailler sur un autre projet, depuis n'importe où
+mise run agent:coding -- "Trouve les bugs" ~/projects/mon-api
+
+# Le harness reste dans copilot-gemma4/, seul le workspace change
+```
+
+Cela permet d'utiliser l'agent sur n'importe quel repo sans avoir
+besoin d'y installer quoi que ce soit.
+
 ## GitHub Copilot integration
 
 This repo ships with `.github/copilot-instructions.md`,
