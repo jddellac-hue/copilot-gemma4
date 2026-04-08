@@ -21,10 +21,25 @@ fi
 
 FORCE="${1:-}"
 PERSIST_DIR="$HOME/.local/share/agent-harness/chroma"
+STAMP="$PERSIST_DIR/.skills_indexed_at"
 
 if [ "$FORCE" = "--force" ]; then
     echo "[...] Suppression de l'ancien index..."
-    rm -rf "$PERSIST_DIR/agent_skills" "$PERSIST_DIR/chat_skills" 2>/dev/null || true
+    rm -rf "$PERSIST_DIR/agent_skills" "$PERSIST_DIR/chat_skills" "$STAMP" 2>/dev/null || true
+fi
+
+# Skip if index is already up-to-date (last commit on skills/ vs stamp)
+if [ -f "$STAMP" ] && [ "$FORCE" != "--force" ]; then
+    LAST_COMMIT_TS=$(git -C "$REPO_DIR" log -1 --format=%ct -- skills/ 2>/dev/null || echo 0)
+    STAMP_TS=$(stat -c %Y "$STAMP" 2>/dev/null || echo 0)
+    if [ "$LAST_COMMIT_TS" -le "$STAMP_TS" ] && [ "$LAST_COMMIT_TS" -gt 0 ]; then
+        echo "[OK] Index déjà à jour (dernier commit skills/ antérieur au dernier reindex)"
+        echo "     Dernier commit : $(date -d @"$LAST_COMMIT_TS" '+%Y-%m-%d %H:%M')"
+        echo "     Dernier index  : $(date -d @"$STAMP_TS" '+%Y-%m-%d %H:%M')"
+        echo ""
+        echo "  Pour forcer : mise run skills:reindex -- --force"
+        exit 0
+    fi
 fi
 
 echo "=== Reconstruction de la base vectorielle ==="
