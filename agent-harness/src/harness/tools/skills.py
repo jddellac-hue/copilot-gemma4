@@ -105,13 +105,18 @@ def _detect_domain(file_path: Path, skills_root: Path) -> str:
 
 
 def _discover_domains(skills_path: Path) -> list[str]:
-    """Return sorted list of domain names from the skills directory."""
+    """Return sorted list of domain names from the skills directory.
+
+    Any subdirectory containing at least one ``.md`` file is treated as a
+    domain.  This allows indexing arbitrary markdown trees (ADR, runbooks,
+    wiki exports, etc.) without requiring a ``SKILL.md`` sentinel.
+    """
     if not skills_path.is_dir():
         return []
     return sorted(
         d.name
         for d in skills_path.iterdir()
-        if d.is_dir() and (d / "SKILL.md").is_file()
+        if d.is_dir() and any(d.rglob("*.md"))
     )
 
 
