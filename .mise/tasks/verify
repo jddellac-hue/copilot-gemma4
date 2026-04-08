@@ -358,6 +358,11 @@ if [ -n "$EVAL_PROVIDER" ]; then
             if [ "$OLLAMA_OK" != true ]; then
                 skip "Eval gemma4 (Ollama hors ligne)"
             else
+                # Préchauffer le modèle pour éviter le cold start (~25s)
+                MODEL=$(grep -E "^\s+name:" "$HARNESS_DIR/config/profiles/ci-gemma4.yaml" | awk '{print $2}' | head -1)
+                info "Préchargement de $MODEL..."
+                source "$REPO_DIR/scripts/ensure-model.sh"
+                _ensure_model "$MODEL" 2>/dev/null || true
                 _run_eval "config/profiles/ci-gemma4.yaml"
             fi
             ;;

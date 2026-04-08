@@ -124,7 +124,7 @@ mise run model:list
 
 ### model:start — Démarrer un modèle
 
-Démarre le service ollama si nécessaire, décharge les autres modèles de la RAM, et précharge le modèle demandé. Utile avant de lancer un chat ou un agent.
+Démarre le service ollama si nécessaire, décharge les autres modèles de la RAM, et précharge le modèle demandé. Utile avant de lancer un chat, un agent ou un eval (évite le cold start de ~25s).
 
 ```bash
 # Démarrer le modèle coding/doc
@@ -235,8 +235,14 @@ mise run agent:mcp -- doc
 Lance les 7 tâches d'évaluation du harness (read, search, edit, test, fix, ops, redteam).
 
 ```bash
-mise run agent:eval -- coding
+mise run agent:eval -- gemma4          # Gemma 4 26B MoE (~8 min)
+mise run agent:eval -- gemma4-light    # Gemma 4 E4B (~10 min)
+mise run agent:eval -- claude          # Claude Sonnet (~2 min, ANTHROPIC_API_KEY)
+mise run agent:eval -- copilot         # GitHub Copilot (~2 min, GITHUB_TOKEN)
 ```
+
+> **Astuce** : préchauffer le modèle avant l'eval réduit le cold start (~25s) :
+> `mise run model:start -- gemma4:26b-a4b-it-q8_0` puis `mise run agent:eval -- gemma4`
 
 ---
 
