@@ -35,6 +35,10 @@ from harness.tools.filesystem import build_filesystem_tools
 from harness.tools.kubernetes import KubernetesConfig, build_kubernetes_tools
 from harness.tools.runbooks import RunbooksConfig, build_runbooks_tools
 
+# Filesystem and bash tools are redundant in MCP mode: the consuming client
+# (Claude Code, Copilot, Cline…) already has its own, with its own sandbox.
+# They are only registered when explicitly requested via expose_filesystem.
+
 logger = logging.getLogger(__name__)
 
 
@@ -50,8 +54,12 @@ def _build_registry(profile: dict[str, Any], workspace: Path) -> tuple[
         )
     )
     registry = ToolRegistry()
-    registry.register_many(build_filesystem_tools(workspace))
-    registry.register(build_bash_tool(sandbox, workspace))
+
+    # Filesystem + bash: only when the profile explicitly opts in.
+    # In MCP mode the client already has its own Read/Write/Edit/Glob/Bash.
+    if profile.get("mcp", {}).get("expose_filesystem", False):
+        registry.register_many(build_filesystem_tools(workspace))
+        registry.register(build_bash_tool(sandbox, workspace))
 
     ops_tools_cfg = profile.get("ops_tools", {})
     if ops_tools_cfg.get("dynatrace", {}).get("enabled"):

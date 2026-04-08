@@ -1,3 +1,6 @@
+[tools]
+python = "3.11"
+
 [env]
 # Bypass proxy corporate pour les connexions locales (Ollama)
 no_proxy = "localhost,127.0.0.1"
@@ -20,3 +23,24 @@ GEMMA4_GENERAL_MODEL = "gemma4:26b-a4b-it-q8_0"
 GEMMA4_VENV_DIR = "{{env.HOME}}/venvs/gemma4"
 # Prompt de test par défaut
 GEMMA4_TEST_PROMPT = "Explique en 2 phrases ce qu'est un transformer en deep learning."
+
+[tasks.setup]
+description = "Installation venv harness (idempotent)"
+sources = ["agent-harness/pyproject.toml"]
+outputs = ["agent-harness/.venv/.installed"]
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+cd agent-harness
+echo "Installation venv harness..."
+rm -rf .venv
+python3 -m venv --without-pip .venv
+curl -sS https://bootstrap.pypa.io/get-pip.py | .venv/bin/python3
+.venv/bin/pip install -q -e ".[dev,anthropic,openai]"
+touch .venv/.installed
+echo "[OK] venv prêt : source agent-harness/.venv/bin/activate"
+echo ""
+echo "Prochaines étapes :"
+echo "  mise run test          Lancer les tests"
+echo "  harness run --help     Voir les options"
+'''

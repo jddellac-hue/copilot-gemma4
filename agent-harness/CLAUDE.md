@@ -69,9 +69,13 @@ tests/integration/        # Agent loop with mocked model
 ## Commands you will need
 
 ```bash
-# Install (all extras)
-python3.11 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,anthropic,openai]"
+# Install (all extras) — via mise (recommandé)
+mise run setup
+
+# Ou manuellement :
+python3 -m venv --without-pip .venv
+curl -sS https://bootstrap.pypa.io/get-pip.py | .venv/bin/python3
+.venv/bin/pip install -e ".[dev,anthropic,openai]"
 
 # Run unit tests — should report "73 passed"
 pytest tests/ -q
