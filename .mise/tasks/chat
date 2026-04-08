@@ -2,7 +2,7 @@
 #MISE description="Chat interactif (ex: mise run chat -- coding|doc|general)"
 set -euo pipefail
 
-ROLE="${1:-coding}"
+ROLE="${1:-general}"
 REPO_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 
 case "$ROLE" in
@@ -12,9 +12,9 @@ case "$ROLE" in
     *)
         echo "Usage: mise run chat [-- coding|doc|general]"
         echo ""
-        echo "  coding   Code generation (défaut)"
+        echo "  coding   Code generation"
         echo "  doc      Documentation"
-        echo "  general  General purpose"
+        echo "  general  General purpose (défaut)"
         exit 1
         ;;
 esac
