@@ -68,12 +68,12 @@ tests/integration/        # Agent loop with mocked model
 ## Commands you will need
 
 ```bash
-# Install (dev + rag extras)
+# Install (all extras)
 python3.11 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,rag]"
+pip install -e ".[dev,anthropic,openai]"
 
-# Run unit tests — should report "51 passed"
-pytest tests/unit -q
+# Run unit tests — should report "54 passed"
+pytest tests/ -q
 
 # Lint + type check (required before committing)
 ruff check src tests eval
