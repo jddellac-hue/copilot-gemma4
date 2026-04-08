@@ -145,9 +145,12 @@ def _build_agent(profile: dict[str, Any], workspace: Path) -> Agent:
             )
         )
     if ops_tools_cfg.get("skills", {}).get("enabled"):
+        # Skills are part of the harness repo, not the workspace.
+        # Resolve relative paths against the repo root (parent of agent-harness/).
+        _repo_root = Path(__file__).resolve().parent.parent.parent.parent
         tools.register_many(
             build_skills_tools(
-                SkillsConfig.from_dict(ops_tools_cfg["skills"], base_dir=workspace)
+                SkillsConfig.from_dict(ops_tools_cfg["skills"], base_dir=_repo_root)
             )
         )
 
