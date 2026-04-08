@@ -138,14 +138,21 @@ def run_suite(
     task_files = sorted(tasks_dir.glob("*.yaml"))
     results: list[dict[str, Any]] = []
 
-    print(f"\n=== Running {len(task_files)} eval tasks ===", flush=True)
+    print(f"\n=== Running {len(task_files)} eval tasks ===\n", flush=True)
     for idx, tf in enumerate(task_files, 1):
         with tf.open(encoding="utf-8") as f:
             task = yaml.safe_load(f)
         task_id = task["id"]
         category = task.get("category", "?")
-        print(f"  [{idx}/{len(task_files)}] {task_id} ({category})...", end="", flush=True)
+        print(
+            f"  [{idx}/{len(task_files)}] {task_id} ({category})...",
+            flush=True,
+        )
         logger.info("running task %s", task_id)
+
+        # Suppress noisy warnings (e.g. sandbox fallback) during task run
+        prev_level = logging.root.level
+        logging.root.setLevel(logging.ERROR)
         try:
             result = _run_one_task(task, profile)
             results.append(result)
@@ -158,8 +165,14 @@ def run_suite(
                 "duration_s": 0,
             }
             results.append(result)
+        finally:
+            logging.root.setLevel(prev_level)
+
         marker = "✓" if result["ok"] else "✗"
-        print(f" {marker} {result['duration_s']}s", flush=True)
+        print(
+            f"        {marker} {result['duration_s']}s\n",
+            flush=True,
+        )
 
     passed = sum(1 for r in results if r["ok"])
     failed = len(results) - passed
