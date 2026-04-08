@@ -147,7 +147,23 @@ if [ "$OLLAMA_OK" = true ]; then
             ok "$model ($SIZE)"
         else
             fail "$model non installé (requis)"
-            echo -e "      ${YELLOW}→ ollama pull $model${NC}"
+            read -rp "      Installer maintenant ? (ollama pull $model) [O/n] " REPLY
+            REPLY="${REPLY:-O}"
+            if [[ "$REPLY" =~ ^[OoYy]$ ]]; then
+                echo ""
+                ollama pull "$model"
+                if ollama list 2>/dev/null | grep -q "$model"; then
+                    ok "$model installé"
+                    PASS=$((PASS + 1)); FAIL=$((FAIL - 1))
+                else
+                    echo -e "      ${RED}Échec de l'installation${NC}"
+                    echo -e "      ${YELLOW}Impossible de continuer sans ce modèle.${NC}"
+                    exit 1
+                fi
+            else
+                echo -e "      ${YELLOW}Impossible de continuer sans ce modèle.${NC}"
+                exit 1
+            fi
         fi
     done
 
