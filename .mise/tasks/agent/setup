@@ -33,26 +33,15 @@ PIP="$HARNESS_DIR/.venv/bin/pip"
 # Upgrade pip
 "$PIP" install --upgrade pip -q 2>/dev/null || true
 
-# TOUJOURS configurer PyPI public en fallback.
+# TOUJOURS configurer PyPI public en fallback dans le venv.
 # Pourquoi : `pip install -e .` utilise l'isolation de build qui crée un
-# sous-processus temporaire. Ce sous-processus n'hérite PAS des packages
-# installés dans le venv, il retélécharge les build dependencies (hatchling)
-# depuis zéro en utilisant la config pip du venv. Si seul Artifactory est
-# configuré et ne mirror pas hatchling → échec silencieux.
-# Configurer extra-index-url de manière permanente est la seule solution fiable.
+# sous-processus temporaire pour installer les build dependencies (hatchling).
+# Ce sous-processus utilise la config pip mais PAS les packages déjà installés.
+# Sur les réseaux corporate (Artifactory), hatchling n'est souvent pas mirroré.
+# Configurer extra-index-url est inoffensif si pypi.org est déjà accessible.
 PYPI_FALLBACK="${PIP_EXTRA_INDEX_URL:-https://pypi.org/simple/}"
-
-# Détecter si un registry corporate est configuré (index-url != pypi.org)
-CURRENT_INDEX=$("$PIP" config get global.index-url 2>/dev/null || echo "")
-if [ -n "$CURRENT_INDEX" ] && ! echo "$CURRENT_INDEX" | grep -q "pypi.org"; then
-    echo "    [i] Registry corporate détecté : $CURRENT_INDEX"
-    echo "    [i] Ajout de PyPI public en fallback : $PYPI_FALLBACK"
-    "$PIP" config set global.extra-index-url "$PYPI_FALLBACK" 2>/dev/null || true
-elif ! "$PIP" install --dry-run hatchling -q 2>/dev/null; then
-    # Pas de registry corporate explicite mais hatchling introuvable quand même
-    echo "    [i] hatchling introuvable, ajout de PyPI public en fallback"
-    "$PIP" config set global.extra-index-url "$PYPI_FALLBACK" 2>/dev/null || true
-fi
+echo "    [i] Configuration de PyPI public en fallback : $PYPI_FALLBACK"
+"$PIP" config set global.extra-index-url "$PYPI_FALLBACK" 2>/dev/null || true
 
 "$PIP" install -e "$HARNESS_DIR[dev,rag]" -q || {
     echo ""
