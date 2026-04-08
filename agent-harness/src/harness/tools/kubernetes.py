@@ -188,7 +188,7 @@ def _run(argv: list[str], timeout_s: int) -> tuple[int, str, str]:
     """Run kubectl, return (exit_code, stdout, stderr)."""
     logger.debug("kubectl exec: %s", argv)
     try:
-        proc = subprocess.run(  # noqa: S603
+        proc = subprocess.run(
             argv,
             capture_output=True,
             text=True,

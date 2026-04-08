@@ -394,7 +394,7 @@ copilot-gemma4/
 │       ├── agent/                     # coding|doc|claude|copilot|mcp|serve|eval|setup
 │       ├── verify                     # Vérification complète
 │       └── clean                      # Nettoyage profond
-├── skills/                            # 10 skills RAG (angular, oracle, quarkus, k8s...)
+├── skills/                            # 18 skills RAG (angular, java, oracle, quarkus, k8s...)
 └── agent-harness/                     # Harness agentique
     ├── config/profiles/               # 11 profils (dev, ci, coding, ops, claude, copilot...)
     ├── src/harness/                   # Agent ReAct, tools, permissions, sandbox, skills RAG

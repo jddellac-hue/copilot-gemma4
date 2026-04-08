@@ -78,7 +78,9 @@ class OllamaClient:
 
         no_proxy = os.environ.get("no_proxy", "")
         if "localhost" not in no_proxy:
-            os.environ["no_proxy"] = f"{no_proxy},localhost,127.0.0.1" if no_proxy else "localhost,127.0.0.1"
+            os.environ["no_proxy"] = (
+                f"{no_proxy},localhost,127.0.0.1" if no_proxy else "localhost,127.0.0.1"
+            )
             os.environ["NO_PROXY"] = os.environ["no_proxy"]
         self._client = ollama.Client(host=endpoint)
 

@@ -11,7 +11,9 @@ from pathlib import Path
 
 import pytest
 
-chromadb = pytest.importorskip("chromadb", reason="chromadb not installed (pip install agent-harness[rag])")
+chromadb = pytest.importorskip(
+    "chromadb", reason="chromadb not installed (pip install agent-harness[rag])"
+)
 
 from harness.tools.skills import SkillsConfig, build_skills_tools
 

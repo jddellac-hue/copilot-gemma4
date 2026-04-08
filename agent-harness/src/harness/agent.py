@@ -6,9 +6,10 @@ import logging
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from harness.memory import Memory
-from harness.model import ModelClient, ToolCall
+from harness.model import ModelClient, ModelResponse, ToolCall
 from harness.observability import Observability
 from harness.permissions import PermissionPolicy
 from harness.tools import ToolRegistry
@@ -100,7 +101,7 @@ class Agent:
 
         raise AgentError(f"max_steps reached: {self.config.max_steps}")
 
-    def _call_model(self) -> Any:  # type: ignore[name-defined]
+    def _call_model(self) -> ModelResponse:
         with self.obs.model_call(self.model.model) as span:
             response = self.model.chat(
                 messages=self.memory.messages,
@@ -172,7 +173,7 @@ class Agent:
         )
 
     def _compact_memory(self) -> None:
-        def summarize(messages: list[dict]) -> str:
+        def summarize(messages: list[dict[str, Any]]) -> str:
             text = "\n".join(
                 f"{m.get('role')}: {str(m.get('content', ''))[:200]}"
                 for m in messages

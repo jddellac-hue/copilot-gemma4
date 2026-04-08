@@ -3,4 +3,4 @@
 from harness.tools.base import Tool, ToolResult, tool
 from harness.tools.registry import ToolRegistry
 
-__all__ = ["Tool", "ToolResult", "tool", "ToolRegistry"]
+__all__ = ["Tool", "ToolRegistry", "ToolResult", "tool"]

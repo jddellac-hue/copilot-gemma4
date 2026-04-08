@@ -296,7 +296,10 @@ def build_concourse_tools(config: ConcourseConfig) -> list[Tool]:
         if finishes:
             body += "\n\n--- step summary ---\n" + "\n".join(finishes)
         if not body:
-            body = "[no log events parsed — build may still be running, or stream format unsupported]"
+            body = (
+                "[no log events parsed — build may still be running, "
+                "or stream format unsupported]"
+            )
         return ToolResult(
             ok=True,
             content=body,

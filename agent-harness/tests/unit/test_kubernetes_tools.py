@@ -9,8 +9,6 @@ These tests do NOT call kubectl. They verify the safety logic:
 
 from __future__ import annotations
 
-import pytest
-
 from harness.tools.kubernetes import (
     KubernetesConfig,
     _build_argv,
@@ -19,7 +17,6 @@ from harness.tools.kubernetes import (
     _validate_resource_kind,
     build_kubernetes_tools,
 )
-
 
 # ----- namespace resolution -------------------------------------------------
 

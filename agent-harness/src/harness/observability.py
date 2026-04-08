@@ -56,7 +56,7 @@ def setup_observability(config: ObservabilityConfig) -> Observability:
 class _NullMetricExporter:
     """Placeholder when no OTLP endpoint is configured."""
 
-    def export(self, *args: Any, **kwargs: Any) -> int:  # noqa: D401
+    def export(self, *args: Any, **kwargs: Any) -> int:
         return 0
 
     def shutdown(self, *args: Any, **kwargs: Any) -> None:

@@ -278,8 +278,11 @@ agent-harness/
 │       ├── dynatrace.py          # DQL, problems, entity search
 │       ├── kubernetes.py         # kubectl get/describe/logs (locked context)
 │       ├── runbooks.py           # RAG over markdown runbooks (Chroma)
-│       ├── skills.py             # RAG over domain skills (Chroma, 10 domains)
-│       └── concourse.py          # Pipelines, builds, build logs
+│       ├── skills.py             # RAG over domain skills (Chroma, 18 domains)
+│       ├── concourse.py          # Pipelines, builds, build logs
+│       ├── sonarqube.py          # SonarQube quality gate & issues
+│       ├── rabbitmq.py           # RabbitMQ overview
+│       └── jacoco.py             # JaCoCo code coverage (parse XML)
 ├── config/profiles/
 │   ├── dev.yaml                  # Dev profile (ask before mutations)
 │   ├── ci.yaml                   # CI profile (deterministic)
@@ -359,7 +362,7 @@ See `docs/README-operator.md` § 6 for the full activation procedure.
 ## Domain skills (RAG)
 
 L'agent dispose d'un outil `search_skills` qui lui donne accès à une
-base de connaissances métier sur 10 domaines techniques. Cet outil
+base de connaissances métier sur **18 domaines techniques**. Cet outil
 utilise un RAG local (Chroma + embeddings CPU) pour retrouver les
 extraits pertinents par recherche sémantique.
 
@@ -370,12 +373,20 @@ extraits pertinents par recherche sémantique.
 | `angular` | Angular 15, Jest, Cypress, Apache, Kustomize |
 | `base` | Oracle 19c Docker, Flyway, schemas, migrations |
 | `concourse` | Concourse 7.14.3, Kind K8s, 3 pipelines |
+| `cutter` | Cookiecutter Streamlit, uv, K8s/Kustomize 4 overlays |
 | `devops` | Cycle DevOps, conventional commits, testing pyramid, CI/CD |
+| `dsn` | DSN, norme N4DS, fragments dd017, modèle de données |
 | `dynatrace` | DQL, Grail, entités, relations, app development |
+| `java` | Java/Maven, JUnit 5, JaCoCo, SonarQube, conventions Spring Boot |
 | `kubernetes` | Diagnostic pods, probes, Kustomize, Helm, RBAC, NetworkPolicy |
+| `mermaid` | Mermaid.js v11+, tous types de diagrammes, styling, themes |
+| `mise` | Tasks file-based, env vars, idempotence, pièges courants |
 | `oracle` | CDB/PDB, ARCHIVELOG, GoldenGate, DataGuard, tablespace monitoring |
 | `quarkus` | Quarkus 2.16/3.x, Kafka, JPA, Dev Services, dual datasources |
-| `template` | Cookiecutter Streamlit, uv, K8s/Kustomize 4 overlays |
+| `rabbitmq` | Exchanges, queues, DLX, Spring AMQP, monitoring, clustering |
+| `spring` | Spring Boot 3.x/4.x, Security, Data JPA, Cloud Stream, Actuator |
+| `sre` | SLI/SLO/SLA, error budgets, 4 golden signals, PVH, chaos engineering |
+| `tanzu` | TAS, Cloud Foundry, BOSH, Diego, cf CLI, Ops Manager |
 | `test` | Docker Compose 7 services, Behave, Playwright, E2E |
 
 ### Comment ça marche

@@ -173,7 +173,7 @@ def build_dynatrace_tools(config: DynatraceConfig) -> list[Tool]:
         # Grail async pattern: if we got a requestToken, poll until done
         if "requestToken" in data and "result" not in data:
             token = data["requestToken"]
-            for attempt in range(config.max_poll_attempts):
+            for _attempt in range(config.max_poll_attempts):
                 time.sleep(config.poll_interval_s)
                 try:
                     poll = client.get(

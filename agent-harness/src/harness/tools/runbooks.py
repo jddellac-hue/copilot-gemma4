@@ -39,7 +39,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -254,7 +253,7 @@ def build_runbooks_tools(config: RunbooksConfig) -> list[Tool]:
                 query_texts=[args["query"]],
                 n_results=top_k,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return ToolResult(
                 ok=False, content=f"runbook search failed: {exc}"
             )

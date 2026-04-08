@@ -14,7 +14,6 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 import uuid
@@ -68,7 +67,7 @@ def create_app(profile: dict[str, Any], workspace: Path) -> Starlette:
 
         try:
             answer = agent.run(user_message)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.exception("Agent run failed")
             answer = f"[Agent error] {exc}"
 
@@ -138,13 +137,13 @@ def run_server(
         "Starting OpenAI-compatible server on %s:%d (model: %s)",
         host, port, model_name,
     )
-    print(f"\n=== Agent Harness — OpenAI-compatible server ===")
+    print("\n=== Agent Harness — OpenAI-compatible server ===")
     print(f"  Endpoint : http://{host}:{port}/v1/chat/completions")
     print(f"  Model    : {model_name}")
     print(f"  Workspace: {workspace}")
-    print(f"\n  Pour IntelliJ AI Assistant :")
+    print("\n  Pour IntelliJ AI Assistant :")
     print(f"    URL : http://{host}:{port}/v1")
-    print(f"    Clé : any-key-works")
-    print(f"\n  Ctrl+C pour arrêter\n")
+    print("    Clé : any-key-works")
+    print("\n  Ctrl+C pour arrêter\n")
 
     uvicorn.run(app, host=host, port=port, log_level="warning")

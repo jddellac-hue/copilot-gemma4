@@ -50,7 +50,7 @@ pseudo-copilot/
 ```bash
 cd copilot-gemma4/agent-harness
 
-# Tests unitaires + intégration (54 tests, pas besoin d'Ollama)
+# Tests unitaires + intégration (96 tests, pas besoin d'Ollama)
 .venv/bin/pytest tests/ -q
 
 # Évaluation avec modèle réel (requiert Ollama ou API key)

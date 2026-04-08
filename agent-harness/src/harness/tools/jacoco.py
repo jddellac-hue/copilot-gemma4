@@ -75,7 +75,7 @@ def build_jacoco_tool(workspace: Path) -> Tool:
             )
 
         try:
-            tree = ET.parse(report)  # noqa: S314
+            tree = ET.parse(report)
         except ET.ParseError as exc:
             return ToolResult(ok=False, content=f"XML parse error: {exc}")
 

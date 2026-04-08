@@ -12,42 +12,16 @@ from __future__ import annotations
 
 import logging
 import re
-import shlex
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
 logger = logging.getLogger(__name__)
 
 SandboxBackend = Literal["subprocess", "bubblewrap"]
-
-
-@dataclass
-class SandboxResult:
-    exit_code: int
-    stdout: str
-    stderr: str
-    duration_ms: int
-    truncated: bool = False
-
-
-@dataclass
-class SandboxConfig:
-    backend: SandboxBackend = "bubblewrap"
-    deny_patterns: list[str] = None  # type: ignore[assignment]
-    allow_network: bool = False
-    max_output_bytes: int = 16 * 1024
-    extra_ro_binds: list[str] = None  # type: ignore[assignment]
-
-    def __post_init__(self) -> None:
-        if self.deny_patterns is None:
-            self.deny_patterns = list(DEFAULT_DENY_PATTERNS)
-        if self.extra_ro_binds is None:
-            self.extra_ro_binds = []
-
 
 # Patterns matched against the raw command string. Any match → refusal.
 DEFAULT_DENY_PATTERNS: tuple[str, ...] = (
@@ -65,6 +39,26 @@ DEFAULT_DENY_PATTERNS: tuple[str, ...] = (
     r"\bcurl\s+[^|]*\|\s*(sh|bash)",  # curl … | sh
     r"\bwget\s+[^|]*\|\s*(sh|bash)",  # wget … | sh
 )
+
+
+@dataclass
+class SandboxResult:
+    exit_code: int
+    stdout: str
+    stderr: str
+    duration_ms: int
+    truncated: bool = False
+
+
+@dataclass
+class SandboxConfig:
+    backend: SandboxBackend = "bubblewrap"
+    deny_patterns: list[str] = field(
+        default_factory=lambda: list(DEFAULT_DENY_PATTERNS)
+    )
+    allow_network: bool = False
+    max_output_bytes: int = 16 * 1024
+    extra_ro_binds: list[str] = field(default_factory=list)
 
 
 class SandboxError(RuntimeError):
@@ -112,7 +106,7 @@ class Sandbox:
                 check=False,
             )
             return proc.returncode == 0
-        except Exception:  # noqa: BLE001
+        except Exception:
             return False
 
     def check_command(self, command: str) -> None:
@@ -145,7 +139,7 @@ class Sandbox:
 
         start = time.monotonic()
         try:
-            proc = subprocess.run(  # noqa: S603
+            proc = subprocess.run(
                 argv,
                 cwd=str(cwd) if self.config.backend == "subprocess" else None,
                 env=scrubbed_env,
@@ -158,8 +152,8 @@ class Sandbox:
             stderr = proc.stderr
             exit_code = proc.returncode
         except subprocess.TimeoutExpired as exc:
-            stdout = exc.stdout or ""
-            stderr = (exc.stderr or "") + f"\n[sandbox] timeout after {timeout_s}s"
+            stdout = str(exc.stdout or "")
+            stderr = str(exc.stderr or "") + f"\n[sandbox] timeout after {timeout_s}s"
             exit_code = 124
         finally:
             duration_ms = int((time.monotonic() - start) * 1000)

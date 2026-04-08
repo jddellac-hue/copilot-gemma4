@@ -82,7 +82,7 @@ class Tool:
             )
         try:
             return self.handler(arguments)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return ToolResult(
                 ok=False,
                 content=f"tool {self.name} raised an exception: {exc}",

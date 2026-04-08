@@ -11,6 +11,7 @@ Token counting is approximate (chars / 4); good enough for budgeting.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -57,7 +58,7 @@ class Memory:
     def needs_compaction(self) -> bool:
         return estimate_tokens(self._messages) > self.soft_budget_tokens
 
-    def compact(self, summarizer: callable) -> None:  # type: ignore[valid-type]
+    def compact(self, summarizer: Callable[[list[dict[str, Any]]], str]) -> None:
         """Replace older non-pinned messages with a summary.
 
         `summarizer` must accept a list of messages and return a string.

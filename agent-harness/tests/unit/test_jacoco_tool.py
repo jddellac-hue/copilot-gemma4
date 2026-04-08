@@ -7,7 +7,6 @@ from textwrap import dedent
 
 from harness.tools.jacoco import build_jacoco_tool
 
-
 SAMPLE_JACOCO_XML = dedent("""\
 <?xml version="1.0" encoding="UTF-8"?>
 <report name="test">

@@ -10,9 +10,9 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
-import shutil
 import subprocess
 import tempfile
 import time
@@ -46,7 +46,7 @@ def _check_success(
         ok = answer.strip() == success["expected"].strip()
         return ok, f"exact check: ok={ok}"
     if kind == "bash":
-        proc = subprocess.run(  # noqa: S602
+        proc = subprocess.run(
             success["command"],
             shell=True,
             cwd=workspace,
@@ -98,16 +98,14 @@ def _run_one_task(
         try:
             answer = agent.run(task["prompt"])
             error: str | None = None
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             answer = ""
             error = f"{type(exc).__name__}: {exc}"
 
         # Persist the final answer for bash success checks that may want it
         (workspace / "..").resolve()
-        try:
+        with contextlib.suppress(OSError):
             Path("/tmp/agent-eval-final.txt").write_text(answer, encoding="utf-8")
-        except OSError:
-            pass
 
         if error:
             ok, detail = False, f"agent raised: {error}"
@@ -156,7 +154,7 @@ def run_suite(
         try:
             result = _run_one_task(task, profile)
             results.append(result)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             result = {
                 "id": task_id,
                 "category": category,
