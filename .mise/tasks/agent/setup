@@ -33,37 +33,39 @@ PIP="$HARNESS_DIR/.venv/bin/pip"
 # Upgrade pip
 "$PIP" install --upgrade pip -q 2>/dev/null || true
 
-# Détecter si le registry corporate bloque des packages essentiels.
-# Si hatchling n'est pas trouvable, configurer PyPI public en fallback
-# de manière PERMANENTE dans le venv pip config (sinon pip install -e
-# échoue aussi sur les build dependencies internes).
-if ! "$PIP" install hatchling -q 2>/dev/null; then
-    echo "    [!] hatchling introuvable dans le registry configuré"
-    echo "    [!] Configuration de PyPI public en fallback permanent..."
-    PYPI_FALLBACK="https://pypi.org/simple/"
+# TOUJOURS configurer PyPI public en fallback.
+# Pourquoi : `pip install -e .` utilise l'isolation de build qui crée un
+# sous-processus temporaire. Ce sous-processus n'hérite PAS des packages
+# installés dans le venv, il retélécharge les build dependencies (hatchling)
+# depuis zéro en utilisant la config pip du venv. Si seul Artifactory est
+# configuré et ne mirror pas hatchling → échec silencieux.
+# Configurer extra-index-url de manière permanente est la seule solution fiable.
+PYPI_FALLBACK="${PIP_EXTRA_INDEX_URL:-https://pypi.org/simple/}"
 
-    # Respecter PIP_EXTRA_INDEX_URL si déjà défini
-    PYPI_FALLBACK="${PIP_EXTRA_INDEX_URL:-$PYPI_FALLBACK}"
-
+# Détecter si un registry corporate est configuré (index-url != pypi.org)
+CURRENT_INDEX=$("$PIP" config get global.index-url 2>/dev/null || echo "")
+if [ -n "$CURRENT_INDEX" ] && ! echo "$CURRENT_INDEX" | grep -q "pypi.org"; then
+    echo "    [i] Registry corporate détecté : $CURRENT_INDEX"
+    echo "    [i] Ajout de PyPI public en fallback : $PYPI_FALLBACK"
     "$PIP" config set global.extra-index-url "$PYPI_FALLBACK" 2>/dev/null || true
-    echo "    [OK] pip configuré avec extra-index-url = $PYPI_FALLBACK"
-
-    "$PIP" install hatchling -q || {
-        echo "[ERREUR] Impossible d'installer hatchling même avec PyPI public"
-        echo ""
-        echo "  Le proxy corporate bloque probablement aussi pypi.org."
-        echo "  Demandez à votre admin réseau d'autoriser pypi.org ou"
-        echo "  d'ajouter hatchling à votre Artifactory."
-        exit 1
-    }
+elif ! "$PIP" install --dry-run hatchling -q 2>/dev/null; then
+    # Pas de registry corporate explicite mais hatchling introuvable quand même
+    echo "    [i] hatchling introuvable, ajout de PyPI public en fallback"
+    "$PIP" config set global.extra-index-url "$PYPI_FALLBACK" 2>/dev/null || true
 fi
 
 "$PIP" install -e "$HARNESS_DIR[dev,rag]" -q || {
+    echo ""
     echo "[ERREUR] Échec de l'installation des dépendances"
     echo ""
-    echo "  Essayez de configurer PyPI public manuellement :"
+    echo "  Le registry pip actuel ne contient pas tous les packages requis."
+    echo "  Essayez :"
     echo "    $PIP config set global.extra-index-url https://pypi.org/simple/"
     echo "    mise run agent:setup -- --force"
+    echo ""
+    echo "  Si pypi.org est aussi bloqué par le proxy, demandez à votre admin"
+    echo "  réseau d'autoriser pypi.org ou d'ajouter ces packages à Artifactory :"
+    echo "    hatchling, chromadb, ollama, pydantic, typer, jsonschema"
     exit 1
 }
 
