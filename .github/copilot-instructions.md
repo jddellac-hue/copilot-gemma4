@@ -72,6 +72,12 @@ mise run agent:doc     -- "tâche"                   # Gemma 4 local (doc)
 mise run agent:claude  -- "tâche"                   # Claude Sonnet
 mise run agent:copilot -- "tâche"                   # GitHub Copilot
 
+# Serveur OpenAI-compatible (pour IntelliJ, Continue.dev, etc.)
+mise run agent:serve               # Gemma 4 coding (défaut, port 11500)
+mise run agent:serve -- claude     # Claude Sonnet
+# IntelliJ : Settings > Tools > AI Assistant > Custom LLM
+#   URL : http://127.0.0.1:11500/v1 | Clé : any-key-works
+
 # Évaluations
 mise run agent:eval -- gemma4|claude|copilot
 

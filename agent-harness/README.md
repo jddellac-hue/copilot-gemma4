@@ -94,20 +94,54 @@ mise run agent:coding -- "Trouve les bugs" ~/projects/mon-api
 Cela permet d'utiliser l'agent sur n'importe quel repo sans avoir
 besoin d'y installer quoi que ce soit.
 
-## GitHub Copilot integration
+## IntelliJ — Gemma local dans le chat IDE
 
-This repo ships with `.github/copilot-instructions.md`,
-`.github/mcp/servers.json` and `.vscode/mcp.json` so the harness is
-discoverable as an MCP server by Copilot agent mode out of the box.
+Le harness expose un serveur OpenAI-compatible qui permet d'utiliser
+Gemma (ou Claude, Copilot) comme LLM dans le chat intégré d'IntelliJ.
+Chaque message déclenche une session agent complète : le modèle
+raisonne, appelle les outils (read file, bash, etc.), et retourne la
+réponse finale.
 
-- **VS Code** : automatic. Open the workspace, switch Copilot Chat to Agent
-  mode, the harness tools appear.
-- **Copilot CLI** : set `COPILOT_PROVIDER=ollama` and let it discover the
-  MCP servers in `.github/mcp/`.
-- **IntelliJ** : configure the Copilot plugin to load
-  `.github/mcp/servers.json` (or copy entries into the plugin settings).
-  See `docs/README-operator.md` § 5.3 for details and the JetBrains AI
-  Assistant alternative.
+### 1. Démarrer le serveur
+
+```bash
+mise run agent:serve               # Gemma 4 coding (défaut)
+mise run agent:serve -- doc        # Gemma 4 documentation
+mise run agent:serve -- claude     # Claude Sonnet (en ligne)
+mise run agent:serve -- copilot    # GitHub Copilot (en ligne)
+```
+
+### 2. Configurer IntelliJ
+
+- **Settings > Tools > AI Assistant > Custom LLM Provider**
+- URL : `http://127.0.0.1:11500/v1`
+- API Key : `any-key-works` (le serveur n'authentifie pas)
+- Model : `gemma4:26b-a4b-it-q8_0`
+
+### 3. Utiliser dans le chat IntelliJ
+
+Ouvrir le chat AI intégré et poser des questions sur le code. Le
+serveur tourne sur le workspace courant par défaut. Pour l'utiliser
+sur un autre projet :
+
+```bash
+mise run agent:serve -- coding ~/autre-projet
+```
+
+> Le serveur doit tourner en arrière-plan pendant toute la session.
+> Arrêter avec Ctrl+C.
+
+## MCP integration (Copilot agent mode)
+
+Le repo fournit aussi `.github/mcp/servers.json` et `.vscode/mcp.json`
+pour exposer les **outils** du harness via MCP (sans changer le LLM).
+Dans ce mode, Copilot garde son propre modèle mais peut utiliser les
+outils du harness (filesystem, bash sandboxé, etc.).
+
+- **VS Code** : automatique. Ouvrir le workspace, passer Copilot Chat
+  en mode Agent — les outils du harness apparaissent.
+- **IntelliJ** : configurer le plugin Copilot pour lire
+  `.github/mcp/servers.json` (ou copier les entrées dans les settings).
 
 ## Project layout
 
