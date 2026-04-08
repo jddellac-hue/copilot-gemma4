@@ -1,6 +1,6 @@
-# Agent Harness KB — Gemma (Ollama) + Python
+# Agent Harness KB — Multi-provider (Ollama / Anthropic / OpenAI) + Python
 
-> **Skill / Knowledge Base** pour la conception, l'implémentation, le déploiement et l'exploitation d'un harnais agentique professionnel autour d'un modèle Gemma exécuté localement via Ollama. Couvre deux profils d'usage : **coding agent** (style Claude Code / Aider / OpenCode) et **ops agent** généraliste (Kubernetes, Dynatrace, documentation, analyse de logs).
+> **Skill / Knowledge Base** pour la conception, l'implémentation, le déploiement et l'exploitation d'un harnais agentique professionnel multi-provider. Le harness supporte trois backends : **Ollama** (Gemma, local), **Anthropic** (Claude, en ligne) et **OpenAI-compatible** (GitHub Copilot, OpenAI, Azure). Couvre deux profils d'usage : **coding agent** (style Claude Code / Aider / OpenCode) et **ops agent** généraliste (Kubernetes, Dynatrace, documentation, analyse de logs).
 
 ---
 
@@ -48,8 +48,8 @@ Un harnais agentique se compose de **six** sous-systèmes faiblement couplés :
 │                      Agent Harness                          │
 │                                                             │
 │  ┌──────────┐   ┌──────────┐   ┌──────────────────┐         │
-│  │  CLI /   │──▶│  Agent   │──▶│  Model Runtime   │         │
-│  │   UI     │   │  Loop    │   │  (Ollama+Gemma)  │         │
+│  │  CLI /   │──▶│  Agent   │──▶│  Model Provider  │         │
+│  │   UI     │   │  Loop    │   │  (multi-backend) │         │
 │  └──────────┘   └────┬─────┘   └──────────────────┘         │
 │                      │                                      │
 │       ┌──────────────┼──────────────┬─────────────┐         │
@@ -85,33 +85,68 @@ Un harnais agentique se compose de **six** sous-systèmes faiblement couplés :
 
 ### 1.3 Principe directeur : *separation of concerns*
 
-Chaque sous-système expose une interface stable. La boucle agentique ne sait rien du sandbox utilisé (bubblewrap ou conteneur), le tool registry ne sait rien du modèle, le système de permissions ne sait rien du transport MCP. Cela permet de remplacer Gemma par un autre modèle local (Qwen, Llama, Mistral) sans toucher au reste, et inversement.
+Chaque sous-système expose une interface stable. La boucle agentique ne sait rien du sandbox utilisé (bubblewrap ou subprocess), le tool registry ne sait rien du modèle, le système de permissions ne sait rien du transport MCP. Le modèle est abstrait derrière un **`ModelClient` protocol** (`model.py`) : changer de provider (Ollama → Anthropic → OpenAI) revient à éditer une ligne dans le profil YAML, sans toucher au code.
 
 ---
 
-## 2. Runtime modèle : Ollama + Gemma
+## 2. Runtime modèle : architecture multi-provider
 
-### 2.1 Pourquoi Ollama
+### 2.1 Le protocol `ModelClient`
+
+Le harness abstrait le modèle derrière un protocol Python (`model.py`) :
+
+```python
+class ModelClient(Protocol):
+    model: str
+    def chat(self, messages, tools=None) -> ModelResponse: ...
+```
+
+Trois implémentations sont fournies :
+
+| Provider | Client | Module | Authentification |
+|----------|--------|--------|------------------|
+| **Ollama** (local) | `OllamaClient` | `model.py` | Aucune (localhost) |
+| **Anthropic** (Claude) | `AnthropicClient` | `anthropic_client.py` | `ANTHROPIC_API_KEY` |
+| **OpenAI-compatible** | `OpenAIClient` | `openai_client.py` | Configurable (`api_key_env`) |
+
+Le provider est sélectionné via le champ `model.provider` du profil YAML. L'agent loop, les tools, les permissions et le sandbox sont identiques quel que soit le provider.
+
+### 2.2 Provider Ollama (local)
 
 - API HTTP locale stable (`http://localhost:11434`)
-- Format **OpenAI-compatible** disponible (`/v1/chat/completions`) → réutilisation d'écosystème
+- Format **OpenAI-compatible** disponible (`/v1/chat/completions`)
 - Gestion native du téléchargement et du caching des modèles
 - Quantization GGUF prête à l'emploi
 - Support du **tool calling** structuré depuis Ollama 0.3+
+- **Fallback texte** : si le tool calling natif échoue, le client parse les balises `<tool_call>...</tool_call>` en regex
 
-### 2.2 Choix du modèle
+### 2.3 Provider Anthropic (Claude)
 
-Gemma existe en plusieurs tailles. Pour un harnais agentique mono-utilisateur sur poste de dev ou serveur modeste :
+- API `https://api.anthropic.com/v1/messages`
+- Tool calling natif et fiable
+- Conversion automatique des formats de messages (harness → Anthropic → harness)
+- Rapide (~100-150 tok/s) mais payant
 
-| Variante               | RAM/VRAM indicative | Usage recommandé                              |
-|------------------------|---------------------|-----------------------------------------------|
-| `gemma:2b` quantisé    | ~2 Go               | Tests, dev local rapide, agents triviaux      |
-| `gemma:7b` quantisé    | ~6 Go               | Coding agent réaliste, ops queries simples    |
-| Variantes plus larges  | 12 Go+              | Tâches complexes, raisonnement multi-étapes   |
+### 2.4 Provider OpenAI-compatible (Copilot, OpenAI, Azure)
 
-> ⚠️ Vérifier la version exacte de Gemma disponible dans le registre Ollama au moment du setup et privilégier les variantes **instruct/it** (instruction-tuned) — un modèle base ne suit pas correctement les instructions de tool use.
+- Endpoint configurable (`model.endpoint` dans le profil)
+- Nom de la variable d'environnement pour la clé configurable (`model.api_key_env`)
+- Compatible GitHub Models API (`https://models.inference.ai.azure.com`), OpenAI, Azure, Groq, Together, etc.
 
-### 2.3 Tool calling avec Ollama
+### 2.5 Choix du modèle (Ollama / Gemma)
+
+Gemma 4 existe en plusieurs variantes. Pour un harnais en CPU-only :
+
+| Variante                     | RAM indicative | Usage recommandé                              |
+|------------------------------|----------------|-----------------------------------------------|
+| `gemma4:e4b` (8B)           | ~10 Go          | Dev rapide, tests, agents légers              |
+| `gemma:7b-instruct`         | ~5 Go           | Profils dev/ci/ops (léger, instruction-tuned) |
+| `gemma4:26b-a4b-it-q8_0` (MoE) | ~28 Go      | **Production coding** (3.8B actifs, qualité near-31B) |
+| `gemma4:31b` (Dense)        | ~19 Go          | Qualité max mais lent en CPU-only             |
+
+> Le 26B MoE est le **sweet spot** en CPU-only : seulement 3.8B paramètres actifs par token, qualité proche du 31B Dense, ~10x plus rapide.
+
+### 2.6 Tool calling avec Ollama
 
 Ollama expose le tool calling via le champ `tools` du payload, similaire à l'API OpenAI :
 
@@ -143,7 +178,7 @@ response = ollama.chat(
 - Gemma n'a pas été entraîné aussi extensivement que GPT-4 ou Claude sur le tool calling. Il faut des **descriptions de tools très claires**, des exemples dans le system prompt, et tolérer un taux d'erreur de format plus élevé → prévoir un **parser robuste avec retry**.
 - Si le modèle choisi ne supporte pas le tool calling natif fiable, fallback sur un **format texte structuré** (JSON entre balises `<tool_call>...</tool_call>`) parsé manuellement, façon ReAct historique.
 
-### 2.4 Prompting de base
+### 2.7 Prompting de base
 
 System prompt minimal recommandé :
 
@@ -560,7 +595,7 @@ with tracer.start_as_current_span("agent.run") as root:
     for step in range(max_steps):
         with tracer.start_as_current_span(f"agent.step.{step}"):
             with tracer.start_as_current_span("model.call") as s:
-                s.set_attribute("model.name", "gemma:7b")
+                s.set_attribute("model.name", model.model)  # e.g. "gemma4:26b-a4b-it-q8_0"
                 response = call_model(...)
                 s.set_attribute("tokens.input", response.usage.input)
                 s.set_attribute("tokens.output", response.usage.output)
@@ -867,9 +902,19 @@ Installation :
 
 ```bash
 uv venv && source .venv/bin/activate
-uv pip install -e ".[dev]"
+uv pip install -e ".[dev,anthropic,openai]"
+
+# Option A : local (Ollama)
 ollama pull gemma:7b-instruct
-harness run --profile dev
+harness run --profile config/profiles/dev.yaml --workspace .
+
+# Option B : Claude (en ligne)
+export ANTHROPIC_API_KEY=sk-ant-...
+harness run --profile config/profiles/claude-online.yaml --workspace .
+
+# Option C : Copilot (en ligne)
+export GITHUB_TOKEN=ghp_...
+harness run --profile config/profiles/copilot.yaml --workspace .
 ```
 
 ### 14.2 Containerisation
@@ -894,13 +939,29 @@ ENTRYPOINT ["uv", "run", "harness"]
 Toute la conf en YAML versionnée, valeurs sensibles via variables d'environnement ou un secret manager. Profils nommés pour basculer entre `dev`, `ci`, `prod-ro` sans toucher au code.
 
 ```yaml
-# config/profiles/dev.yaml
+# config/profiles/dev.yaml (local Ollama)
 model:
   provider: ollama
   endpoint: http://localhost:11434
   name: gemma:7b-instruct
   temperature: 0.2
 
+# config/profiles/claude-online.yaml (Anthropic)
+model:
+  provider: anthropic
+  name: claude-sonnet-4-20250514
+  temperature: 0.2
+  max_tokens: 4096
+
+# config/profiles/copilot.yaml (OpenAI-compatible)
+model:
+  provider: openai
+  endpoint: https://models.inference.ai.azure.com
+  name: gpt-4o
+  api_key_env: GITHUB_TOKEN
+  temperature: 0.2
+
+# Commun à tous les profils :
 agent:
   max_steps: 25
   token_budget: 50000
