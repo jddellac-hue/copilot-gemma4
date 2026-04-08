@@ -73,7 +73,7 @@ tests/integration/        # Agent loop with mocked model
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,anthropic,openai]"
 
-# Run unit tests — should report "66 passed"
+# Run unit tests — should report "73 passed"
 pytest tests/ -q
 
 # Lint + type check (required before committing)

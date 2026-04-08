@@ -44,7 +44,7 @@ echo "  Date       : $(date '+%Y-%m-%d %H:%M:%S')"
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Harness installé et CLI fonctionnel
 # ─────────────────────────────────────────────────────────────────────────────
-section "1/9 — Installation harness"
+section "1/10 — Installation harness"
 
 if [ ! -f "$HARNESS" ]; then
     fail "CLI harness non trouvé ($HARNESS)"
@@ -67,7 +67,7 @@ done
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Imports Python — tous les modules du harness sont importables
 # ─────────────────────────────────────────────────────────────────────────────
-section "2/9 — Imports Python"
+section "2/10 — Imports Python"
 
 MODULES=(
     "harness"
@@ -100,7 +100,7 @@ done
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. Protocol ModelClient — les 3 clients l'implémentent
 # ─────────────────────────────────────────────────────────────────────────────
-section "3/9 — Protocol ModelClient"
+section "3/10 — Protocol ModelClient"
 
 "$PYTHON" -c "
 from harness.model import ModelClient, OllamaClient
@@ -119,7 +119,7 @@ print('OK')
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. Sandbox — fallback fonctionne
 # ─────────────────────────────────────────────────────────────────────────────
-section "4/9 — Sandbox"
+section "4/10 — Sandbox"
 
 SANDBOX_OUT=$("$PYTHON" -c "
 from harness.sandbox import Sandbox, SandboxConfig
@@ -180,7 +180,7 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. Permissions — policy fonctionne
 # ─────────────────────────────────────────────────────────────────────────────
-section "5/9 — Permissions"
+section "5/10 — Permissions"
 
 PERM_OUT=$("$PYTHON" -c "
 from harness.permissions import PermissionPolicy
@@ -222,7 +222,7 @@ done
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. Filesystem tools — boundary enforcement
 # ─────────────────────────────────────────────────────────────────────────────
-section "6/9 — Outils filesystem (boundary enforcement)"
+section "6/10 — Outils filesystem (boundary enforcement)"
 
 FS_OUT=$("$PYTHON" -c "
 from harness.tools.filesystem import build_filesystem_tools
@@ -275,7 +275,7 @@ done
 # ─────────────────────────────────────────────────────────────────────────────
 # 7. Tests pytest (unit + intégration)
 # ─────────────────────────────────────────────────────────────────────────────
-section "7/9 — Tests pytest"
+section "7/10 — Tests pytest"
 
 cd "$HARNESS_DIR"
 
@@ -317,7 +317,7 @@ cd "$REPO_DIR"
 # ─────────────────────────────────────────────────────────────────────────────
 # 8. Eval tasks — fixtures et success criteria valides
 # ─────────────────────────────────────────────────────────────────────────────
-section "8/9 — Validation des eval tasks"
+section "8/10 — Validation des eval tasks"
 
 EVAL_DIR="$HARNESS_DIR/eval/tasks"
 
@@ -378,7 +378,7 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 # 9. Ollama + modèle (si disponible)
 # ─────────────────────────────────────────────────────────────────────────────
-section "9/9 — Connectivité Ollama"
+section "9/10 — Connectivité Ollama"
 
 if curl -sf http://localhost:11434/api/version &>/dev/null; then
     ok "Ollama répond sur localhost:11434"
@@ -394,6 +394,107 @@ if curl -sf http://localhost:11434/api/version &>/dev/null; then
 else
     skip "Ollama non accessible (tests Ollama ignorés)"
     detail "Démarrez Ollama : ollama serve"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 10. Skills RAG — vérification de la base vectorielle
+# ─────────────────────────────────────────────────────────────────────────────
+section "10/10 — Skills RAG (base vectorielle)"
+
+SKILLS_DIR="$REPO_DIR/skills"
+
+if [ -d "$SKILLS_DIR" ]; then
+    SKILL_COUNT=$(find "$SKILLS_DIR" -mindepth 1 -maxdepth 1 -type d | wc -l)
+    ok "Dossier skills/ présent ($SKILL_COUNT domaines)"
+
+    # Vérifier que les 10 domaines attendus sont là
+    EXPECTED_DOMAINS="angular base concourse devops dynatrace kubernetes oracle quarkus template test"
+    ALL_PRESENT=true
+    for domain in $EXPECTED_DOMAINS; do
+        if [ -d "$SKILLS_DIR/$domain" ] && [ -f "$SKILLS_DIR/$domain/SKILL.md" ]; then
+            ok "skills/$domain/SKILL.md présent"
+        else
+            fail "skills/$domain/SKILL.md manquant"
+            ALL_PRESENT=false
+        fi
+    done
+
+    # Si chromadb est installé, tester l'indexation et la recherche
+    if [ -f "$VENV/bin/python3" ] && "$VENV/bin/python3" -c "import chromadb" 2>/dev/null; then
+        ok "chromadb installé"
+
+        info "Indexation + recherche de vérification..."
+        RAG_OUTPUT=$("$VENV/bin/python3" -c "
+import sys, tempfile, json
+from pathlib import Path
+
+from harness.tools.skills import SkillsConfig, build_skills_tools
+
+persist = Path(tempfile.mkdtemp()) / 'chroma_test'
+config = SkillsConfig(
+    enabled=True,
+    path=Path('$SKILLS_DIR'),
+    collection_name='test_system_check',
+    persist_dir=persist,
+    chunk_size=800,
+    chunk_overlap=100,
+    max_results=5,
+)
+tools = build_skills_tools(config)
+if not tools:
+    print(json.dumps({'error': 'build_skills_tools returned empty'}))
+    sys.exit(1)
+
+search = tools[0]
+
+# Test 1 : recherche Kafka → doit trouver quarkus
+r1 = search.invoke({'query': 'Kafka acknowledgment strategy', 'domain': 'quarkus'})
+# Test 2 : recherche CrashLoopBackOff → doit trouver kubernetes
+r2 = search.invoke({'query': 'pod CrashLoopBackOff diagnostic', 'domain': 'kubernetes'})
+# Test 3 : recherche DQL → doit trouver dynatrace
+r3 = search.invoke({'query': 'DQL fetch filter tags', 'domain': 'dynatrace'})
+
+print(json.dumps({
+    'chunks': search.invoke({'query': 'test'}).metadata.get('matches', 0),
+    'kafka_ok': r1.ok and 'quarkus' in r1.content.lower(),
+    'k8s_ok': r2.ok and 'kubernetes' in r2.content.lower(),
+    'dql_ok': r3.ok and 'dynatrace' in r3.content.lower(),
+    'kafka_excerpt': r1.content[:80] if r1.ok else r1.content,
+    'k8s_excerpt': r2.content[:80] if r2.ok else r2.content,
+    'dql_excerpt': r3.content[:80] if r3.ok else r3.content,
+}))
+
+# Cleanup
+import shutil
+shutil.rmtree(persist, ignore_errors=True)
+" 2>&1) || {
+            fail "Erreur lors du test RAG"
+            detail "$RAG_OUTPUT"
+        }
+
+        if echo "$RAG_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('kafka_ok') else 1)" 2>/dev/null; then
+            ok "Recherche 'Kafka ack strategy' → domaine quarkus trouvé"
+        else
+            fail "Recherche 'Kafka ack strategy' n'a pas trouvé le domaine quarkus"
+            detail "$RAG_OUTPUT"
+        fi
+
+        if echo "$RAG_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('k8s_ok') else 1)" 2>/dev/null; then
+            ok "Recherche 'CrashLoopBackOff' → domaine kubernetes trouvé"
+        else
+            fail "Recherche 'CrashLoopBackOff' n'a pas trouvé le domaine kubernetes"
+        fi
+
+        if echo "$RAG_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('dql_ok') else 1)" 2>/dev/null; then
+            ok "Recherche 'DQL fetch filter' → domaine dynatrace trouvé"
+        else
+            fail "Recherche 'DQL fetch filter' n'a pas trouvé le domaine dynatrace"
+        fi
+    else
+        skip "chromadb non installé — test RAG ignoré"
+    fi
+else
+    fail "Dossier skills/ introuvable dans $SKILLS_DIR"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
