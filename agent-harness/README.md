@@ -94,86 +94,160 @@ mise run agent:coding -- "Trouve les bugs" ~/projects/mon-api
 Cela permet d'utiliser l'agent sur n'importe quel repo sans avoir
 besoin d'y installer quoi que ce soit.
 
-## IntelliJ — Gemma local dans le chat IDE
+## Intégration IDE
 
-Le harness expose un serveur OpenAI-compatible qui permet d'utiliser
-Gemma (ou Claude, Copilot) comme LLM dans le chat intégré d'IntelliJ.
-Chaque message déclenche une session agent complète : le modèle
-raisonne, appelle les outils (read file, bash, etc.), et retourne la
-réponse finale.
+Deux modes d'intégration dans l'IDE, avec des rôles différents :
 
-### 1. Démarrer le serveur
+| Mode | Cerveau | Outils | Offline | Commande |
+|------|---------|--------|---------|----------|
+| **agent:serve** (OpenAI-compat) | Gemma local (ou Claude/Copilot) | Intégrés dans la boucle agent | Oui | `mise run agent:serve` |
+| **agent:mcp** (MCP) | GPT-4o (Copilot cloud) | Exposés via MCP au modèle Copilot | Non | Automatique |
 
-```bash
-mise run agent:serve               # Gemma 4 coding (défaut)
-mise run agent:serve -- doc        # Gemma 4 documentation
-mise run agent:serve -- claude     # Claude Sonnet (en ligne)
-mise run agent:serve -- copilot    # GitHub Copilot (en ligne)
-```
+---
 
-### 2. Configurer IntelliJ
+### Mode 1 : `agent:serve` — Gemma local dans le chat IntelliJ
 
-- **Settings > Tools > AI Assistant > Custom LLM Provider**
-- URL : `http://127.0.0.1:11500/v1`
-- API Key : `any-key-works` (le serveur n'authentifie pas)
-- Model : `gemma4:26b-a4b-it-q8_0`
+Le harness expose un serveur OpenAI-compatible. Chaque message dans le
+chat IDE déclenche une **session agent complète** : le modèle raisonne,
+appelle les outils (read file, bash, search_skills, etc.), et retourne
+la réponse finale.
 
-### 3. Utiliser dans le chat IntelliJ
-
-Ouvrir le chat AI intégré et poser des questions sur le code. Le
-serveur tourne sur le workspace courant par défaut. Pour l'utiliser
-sur un autre projet :
+#### Etape 1 — Démarrer le serveur (terminal)
 
 ```bash
+cd ~/pseudo-copilot/copilot-gemma4
+
+# Gemma 4 coding (défaut) — gratuit, offline, ~30 tok/s
+mise run agent:serve
+
+# Variantes :
+mise run agent:serve -- doc        # Gemma 4 mode documentation
+mise run agent:serve -- claude     # Claude Sonnet (ANTHROPIC_API_KEY requis)
+mise run agent:serve -- copilot    # GitHub Copilot (GITHUB_TOKEN requis)
+
+# Sur un autre projet :
 mise run agent:serve -- coding ~/autre-projet
 ```
 
-> Le serveur doit tourner en arrière-plan pendant toute la session.
-> Arrêter avec Ctrl+C.
+Le serveur tourne sur `http://127.0.0.1:11500/v1`. **Le laisser tourner** pendant toute la session IDE. Arrêter avec Ctrl+C.
 
-## Copilot + MCP (outils du harness dans le chat Copilot)
+#### Etape 2 — Configurer IntelliJ (une seule fois)
 
-Le repo fournit `.github/mcp/servers.json`, `.vscode/mcp.json` et
-`.github/chatmodes/` pour exposer les **outils** du harness via MCP.
-Dans ce mode, Copilot garde son propre modèle (GPT-4o) mais peut
-utiliser les outils du harness (filesystem, bash sandboxé, Dynatrace,
-K8s, etc.).
+1. Ouvrir IntelliJ IDEA
+2. **Settings** (Ctrl+Alt+S) → **Tools** → **AI Assistant**
+3. Cliquer sur **Custom LLM Provider** (ou "Add Provider")
+4. Remplir :
+   - **Name** : `Gemma 4 Local` (ou ce que tu veux)
+   - **API URL** : `http://127.0.0.1:11500/v1`
+   - **API Key** : `any-key-works` (le serveur n'authentifie pas, mais IntelliJ exige une valeur)
+   - **Model** : `gemma4:26b-a4b-it-q8_0`
+5. Cliquer **OK**
+6. Dans la liste des providers, sélectionner **Gemma 4 Local** comme provider actif
 
-### Setup VS Code
+#### Etape 3 — Utiliser dans le chat IntelliJ
 
-Automatique. Ouvrir le workspace `copilot-gemma4/`, passer Copilot
-Chat en mode Agent — les outils du harness apparaissent.
+1. Ouvrir le panneau **AI Assistant** (Alt+Entrée ou icône dans la barre latérale droite)
+2. Taper une question dans le chat :
+   ```
+   Explique ce que fait la classe Agent dans src/harness/agent.py
+   ```
+3. Le serveur exécute une session agent complète en arrière-plan :
+   - Le modèle lit le fichier via `read_file`
+   - Il peut chercher dans les skills via `search_skills`
+   - Il retourne la réponse enrichie
+4. Exemples de questions utiles :
+   ```
+   Trouve et corrige le bug dans permissions.py
+   Ecris des tests unitaires pour la fonction _split_markdown
+   Quelle est la stratégie Kafka recommandée pour Quarkus ?
+   Explique l'architecture du sandbox bubblewrap
+   ```
 
-### Setup IntelliJ
+> **Latence** : la première réponse prend ~10-30s (chargement modèle).
+> Les suivantes sont plus rapides (~5-15s selon la complexité).
+
+---
+
+### Mode 2 : `agent:mcp` — Outils du harness dans Copilot Chat
+
+Le harness expose ses **outils** (pas le modèle) via MCP. Copilot garde
+son propre cerveau (GPT-4o) mais peut appeler les outils du harness :
+filesystem, bash sandboxé, Dynatrace, K8s, runbooks, skills, Concourse.
+
+#### Setup VS Code (automatique)
+
+1. Ouvrir le dossier `copilot-gemma4/` dans VS Code
+2. VS Code détecte `.vscode/mcp.json` automatiquement
+3. Ouvrir **Copilot Chat** (Ctrl+Shift+I)
+4. Cliquer sur l'icône **mode** en haut du chat → choisir :
+   - **Gemma Agent** : filesystem + bash (dev)
+   - **Ops Investigation** : Dynatrace + K8s + runbooks + Concourse
+5. Poser des questions — Copilot utilise les outils du harness :
+   ```
+   Lis le fichier agent.py et explique la boucle ReAct
+   Lance les tests pytest et dis-moi s'il y a des échecs
+   Cherche dans les skills comment configurer Kafka dans Quarkus
+   ```
+
+> Pas besoin de démarrer un serveur manuellement. VS Code lance le
+> serveur MCP en arrière-plan via la config `.vscode/mcp.json`.
+
+#### Setup IntelliJ (automatique avec plugin Copilot)
 
 1. Installer le plugin **GitHub Copilot** dans IntelliJ
-2. Ouvrir le workspace `copilot-gemma4/`
-3. Le plugin découvre `.github/mcp/servers.json` automatiquement
-4. Dans Copilot Chat, les chatmodes apparaissent :
-   - **Coding Agent** — filesystem + bash (pour le dev)
-   - **Ops Investigation** — Dynatrace + K8s + runbooks + Concourse
+   - **Settings** → **Plugins** → chercher "GitHub Copilot" → **Install**
+2. Ouvrir le dossier `copilot-gemma4/` comme projet
+3. Le plugin détecte `.github/mcp/servers.json` automatiquement
+4. Ouvrir **Copilot Chat** (icône Copilot dans la barre latérale)
+5. Cliquer sur le menu des modes (en haut du chat) → choisir :
+   - **Gemma Agent (local)** : filesystem + bash
+   - **Ops Investigation** : Dynatrace + K8s + runbooks + Concourse
+6. Poser des questions :
+   ```
+   Quels sont les pods en CrashLoopBackOff dans le namespace app-backend ?
+   Montre-moi les problèmes Dynatrace ouverts sur la dernière heure
+   Cherche dans les runbooks comment résoudre un lag de réplication Oracle
+   ```
 
 > **Prérequis** : le harness doit être installé (`mise run agent:setup`).
 > Le serveur MCP est lancé automatiquement par le plugin Copilot.
 
-### Chatmodes disponibles
+#### Setup MCP manuel (terminal)
 
-| Chatmode | Outils | Usage |
-|----------|--------|-------|
-| Coding Agent | read/write/edit/search files, bash | Explorer, analyser, modifier du code |
-| Ops Investigation | Dynatrace, K8s, runbooks, Concourse | Investigation d'incidents en read-only |
+Si l'auto-discovery ne fonctionne pas, lancer le serveur MCP manuellement :
 
-## Comparaison des deux modes
+```bash
+# Mode coding (filesystem + bash + skills)
+mise run agent:mcp -- coding
 
-| | AI Assistant + openai-serve | Copilot + MCP |
+# Mode documentation
+mise run agent:mcp -- doc
+```
+
+Puis configurer l'IDE pour pointer vers le serveur MCP stdio.
+
+#### Chatmodes disponibles
+
+| Chatmode | Outils exposés | Usage |
+|----------|---------------|-------|
+| **Gemma Agent** | read/write/edit/search files, bash, search_skills | Explorer, analyser, modifier du code |
+| **Ops Investigation** | Dynatrace DQL/problems/entities, kubectl get/describe/logs, search_runbooks, search_skills, Concourse pipelines/builds/logs | Investigation d'incidents en read-only |
+
+---
+
+### Comparaison des deux modes
+
+| | `agent:serve` (OpenAI) | `agent:mcp` (MCP + Copilot) |
 |---|---|---|
-| **Cerveau** | Gemma local (ou Claude/Copilot) | GPT-4o (GitHub) |
-| **Outils** | Intégrés dans la boucle agent | Via MCP |
-| **Offline** | Oui (avec Gemma) | Non |
-| **Vitesse** | ~30 tok/s (CPU) | Rapide (cloud) |
-| **Coût** | Gratuit | Licence Copilot |
-| **Config** | `mise run agent:serve` + Custom LLM | Automatique (MCP discovery) |
-| **Commande** | `mise run agent:serve` | `mise run agent:mcp` (ou auto) |
+| **Cerveau** | Gemma local (ou Claude/Copilot) | GPT-4o (GitHub cloud) |
+| **Outils** | Intégrés dans la boucle agent | Exposés via MCP |
+| **Offline** | Oui (avec Gemma) | Non (Copilot = cloud) |
+| **Vitesse** | ~30 tok/s CPU, 5-30s/réponse | Rapide (cloud) |
+| **Coût** | Gratuit (Gemma local) | Licence Copilot |
+| **Skills RAG** | Oui (search_skills intégré) | Oui (via MCP) |
+| **Config** | Terminal + Custom LLM dans IDE | Automatique (MCP discovery) |
+| **IDE** | IntelliJ AI Assistant | VS Code Copilot Chat, IntelliJ Copilot |
+| **Quand l'utiliser** | Offline, données sensibles, gratuit | En ligne, réponses rapides |
 
 ## Project layout
 
