@@ -61,11 +61,13 @@ _ensure_skills_index() {
         echo "    [i] Première indexation des skills"
         needs_reindex=true
     else
-        # Vérifier si un fichier .md dans skills/ est plus récent que le stamp
-        local newer
-        newer=$(find "$SKILLS_DIR" -name "*.md" -newer "$STAMP_FILE" -type f 2>/dev/null | head -1)
-        if [ -n "$newer" ]; then
-            echo "    [i] Skills modifiés depuis le dernier index ($(basename "$newer")...)"
+        # Comparer le dernier commit sur skills/ avec le stamp
+        local last_commit_ts
+        last_commit_ts=$(git -C "$REPO_DIR" log -1 --format=%ct -- skills/ 2>/dev/null || echo 0)
+        local stamp_ts
+        stamp_ts=$(stat -c %Y "$STAMP_FILE" 2>/dev/null || echo 0)
+        if [ "$last_commit_ts" -gt "$stamp_ts" ] 2>/dev/null; then
+            echo "    [i] Skills modifiés depuis le dernier index (commit plus récent)"
             needs_reindex=true
         fi
     fi
