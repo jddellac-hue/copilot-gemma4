@@ -33,7 +33,22 @@ echo "[...] Installation des dépendances..."
 
 echo ""
 echo "[OK] agent-harness installé"
-"$HARNESS_DIR/.venv/bin/harness" --help | head -3
+"$HARNESS_DIR/.venv/bin/harness" --help | head -3 || true
+
+# Vérifier les modèles requis
+REPO_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+echo ""
+echo "=== Vérification des modèles Ollama ==="
+source "$REPO_DIR/scripts/ensure-model.sh"
+for MODEL in gemma4:26b-a4b-it-q8_0 gemma:7b-instruct; do
+    if ollama list 2>/dev/null | grep -q "$MODEL"; then
+        echo "[OK] $MODEL installé"
+    else
+        echo ""
+        _ensure_model "$MODEL" || echo "[!] $MODEL non installé — vous pourrez l'installer plus tard"
+    fi
+done
+
 echo ""
 echo "Prochaines étapes :"
 echo ""
