@@ -129,10 +129,16 @@ permissions:
     # Filesystem reads
     - tool: read_file
       decision: allow
+      patterns_deny:
+        - "skills/"
     - tool: list_dir
       decision: allow
+      patterns_deny:
+        - "skills/"
     - tool: search_files
       decision: allow
+      patterns_deny:
+        - "skills/"
 
     # Filesystem writes — only if explicitly confirmed, with hard denies
     - tool: write_file

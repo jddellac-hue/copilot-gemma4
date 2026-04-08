@@ -65,10 +65,16 @@ permissions:
     # ---- Read: always safe ----
     - tool: read_file
       decision: allow
+      patterns_deny:
+        - "skills/"
     - tool: list_dir
       decision: allow
+      patterns_deny:
+        - "skills/"
     - tool: search_files
       decision: allow
+      patterns_deny:
+        - "skills/"
 
     # ---- Write: allow (la doc écrit beaucoup) ----
     - tool: write_file

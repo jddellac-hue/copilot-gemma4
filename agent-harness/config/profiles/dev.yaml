@@ -76,10 +76,16 @@ permissions:
     # ---- Read-only filesystem: always safe ----
     - tool: read_file
       decision: allow
+      patterns_deny:
+        - "skills/"
     - tool: list_dir
       decision: allow
+      patterns_deny:
+        - "skills/"
     - tool: search_files
       decision: allow
+      patterns_deny:
+        - "skills/"
 
     # ---- Filesystem mutations: ask, with hard denies on protected paths ----
     - tool: write_file
