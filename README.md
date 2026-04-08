@@ -182,7 +182,7 @@ Commandes disponibles dans le chat :
 
 Changer le modèle ponctuellement :
 ```bash
-GEMMA4_CODING_MODEL=gemma4:26b mise run chat:coding
+GEMMA4_CODING_MODEL=gemma4:26b mise run chat -- coding
 ```
 
 Changer le modèle par défaut : éditer `mise.toml` → `GEMMA4_CODING_MODEL`.
@@ -375,7 +375,8 @@ copilot-gemma4/
 ├── README.md
 ├── scripts/
 │   ├── chat.py                        # Chat interactif streaming
-│   └── ensure-model.sh                # Vérif auto ollama + modèle + preload
+│   ├── ensure-model.sh                # Vérif auto ollama + modèle + preload
+│   └── harness-run.sh                 # Helper commun pour les tasks agent
 ├── .mise/
 │   ├── benchmarks/                    # Résultats sauvegardés
 │   └── tasks/
@@ -387,10 +388,6 @@ copilot-gemma4/
 │       ├── agent/                     # coding|doc|claude|copilot|mcp|serve|eval|setup
 │       ├── verify                     # Vérification complète
 │       └── clean                      # Nettoyage profond
-├── scripts/
-│   ├── chat.py                        # Chat interactif streaming
-│   ├── ensure-model.sh                # Vérif auto ollama + modèle + preload
-│   └── harness-run.sh                 # Helper commun pour les tasks agent
 ├── skills/                            # 10 skills RAG (angular, oracle, quarkus, k8s...)
 └── agent-harness/                     # Harness agentique
     ├── config/profiles/               # 11 profils (dev, ci, coding, ops, claude, copilot...)

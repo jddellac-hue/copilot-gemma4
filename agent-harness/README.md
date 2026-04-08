@@ -56,7 +56,7 @@ explicitly to:
 # Install
 git clone <repo> && cd agent-harness
 python3.11 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,anthropic,openai]"
+pip install -e ".[dev,rag,anthropic,openai]"
 
 # Option A: Local (Ollama + Gemma 4)
 ollama pull gemma4:e4b
@@ -200,7 +200,12 @@ agent-harness/
 │       ├── base.py               # Tool dataclass + decorator
 │       ├── registry.py           # Tool registry
 │       ├── filesystem.py         # read/list/search/write/edit
-│       └── bash.py               # Sandboxed shell
+│       ├── bash.py               # Sandboxed shell
+│       ├── dynatrace.py          # DQL, problems, entity search
+│       ├── kubernetes.py         # kubectl get/describe/logs (locked context)
+│       ├── runbooks.py           # RAG over markdown runbooks (Chroma)
+│       ├── skills.py             # RAG over domain skills (Chroma, 10 domains)
+│       └── concourse.py          # Pipelines, builds, build logs
 ├── config/profiles/
 │   ├── dev.yaml                  # Dev profile (ask before mutations)
 │   ├── ci.yaml                   # CI profile (deterministic)

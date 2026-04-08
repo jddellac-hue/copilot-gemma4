@@ -19,4 +19,8 @@ Thumbs.db
 
 # Ollama data (local only)
 models/
+
+# Harness runtime artefacts
 agent-harness/eval/report.json
+.chroma/
+chroma_data/

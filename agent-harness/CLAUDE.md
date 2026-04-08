@@ -60,7 +60,7 @@ src/harness/
     ├── skills.py         # Chroma RAG over domain skill docs
     └── concourse.py      # concourse_pipelines/builds/build_logs
 
-config/profiles/          # dev, ci, gemma4-*, claude-*, copilot, ops, prod-ro
+config/profiles/          # 11 profiles: dev, ci(4), gemma4(2), claude, copilot, ops, prod-ro
 eval/tasks/               # 7 reproducible eval tasks (YAML)
 tests/unit/               # Permissions, sandbox, tools, k8s, runbooks, SSE
 tests/integration/        # Agent loop with mocked model
@@ -73,7 +73,7 @@ tests/integration/        # Agent loop with mocked model
 python3.11 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,anthropic,openai]"
 
-# Run unit tests — should report "54 passed"
+# Run unit tests — should report "66 passed"
 pytest tests/ -q
 
 # Lint + type check (required before committing)
