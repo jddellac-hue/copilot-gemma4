@@ -29,7 +29,7 @@ python3 -m venv "$HARNESS_DIR/.venv"
 
 echo "[...] Installation des dépendances..."
 "$HARNESS_DIR/.venv/bin/pip" install --upgrade pip -q
-"$HARNESS_DIR/.venv/bin/pip" install -e "$HARNESS_DIR[dev]" -q
+"$HARNESS_DIR/.venv/bin/pip" install -e "$HARNESS_DIR[dev,rag]" -q
 
 echo ""
 echo "[OK] agent-harness installé"
