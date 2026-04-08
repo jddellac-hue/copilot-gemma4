@@ -79,10 +79,17 @@ def _run_one_task(
         budget = task.get("budget", {})
         profile_copy = json.loads(json.dumps(profile))  # cheap deep copy
         profile_copy.setdefault("agent", {})
+        multiplier = float(
+            profile_copy.get("eval", {}).get("budget_multiplier", 1.0)
+        )
         if "max_steps" in budget:
-            profile_copy["agent"]["max_steps"] = budget["max_steps"]
+            profile_copy["agent"]["max_steps"] = int(
+                budget["max_steps"] * multiplier
+            )
         if "max_tokens" in budget:
-            profile_copy["agent"]["token_budget"] = budget["max_tokens"]
+            profile_copy["agent"]["token_budget"] = int(
+                budget["max_tokens"] * multiplier
+            )
 
         # In CI mode the confirm callback should never be invoked because
         # there are no `ask` decisions in the ci profile.

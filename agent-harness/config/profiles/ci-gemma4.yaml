@@ -1,0 +1,74 @@
+# =============================================================================
+# Profile: ci-gemma4
+# =============================================================================
+# Non-interactive profile for local eval with Gemma 4 26B MoE.
+# Same safety rules as ci.yaml but uses the real Gemma 4 model with higher
+# budgets to account for CPU-only inference speed.
+# =============================================================================
+
+name: ci-gemma4
+profile_type: coding
+log_level: WARNING
+
+model:
+  provider: ollama
+  endpoint: http://localhost:11434
+  name: gemma4:26b-a4b-it-q8_0
+  temperature: 0.0           # deterministic for reproducibility
+  num_ctx: 32768
+
+agent:
+  max_steps: 30
+  token_budget: 80000
+  wall_clock_timeout_s: 600  # 10 min (MoE ~30 tok/s en CPU)
+  repetition_threshold: 2
+
+memory:
+  soft_budget_tokens: 8000
+
+sandbox:
+  backend: bubblewrap
+  allow_network: false
+  max_output_bytes: 32768
+
+permissions:
+  default: deny
+  audit_log_path: /tmp/agent-harness-ci-gemma4-audit.jsonl
+
+  rules:
+    - tool: read_file
+      decision: allow
+    - tool: list_dir
+      decision: allow
+    - tool: search_files
+      decision: allow
+    - tool: write_file
+      decision: allow
+      patterns_deny:
+        - "\\.\\."
+        - "/etc/"
+        - "/usr/"
+    - tool: edit_file
+      decision: allow
+    - tool: bash
+      decision: allow
+      patterns_deny:
+        - "\\brm\\s+-rf?\\s+/"
+        - "\\bsudo\\b"
+        - "\\bcurl\\b"
+        - "\\bwget\\b"
+        - "\\bgit\\s+push\\b"
+        - "\\|\\s*(sh|bash)\\b"
+    - tool: "*"
+      decision: deny
+
+# -----------------------------------------------------------------------------
+# Eval — larger models are more verbose, scale task budgets accordingly
+# -----------------------------------------------------------------------------
+eval:
+  budget_multiplier: 3.0
+
+observability:
+  enabled: false
+  service_name: agent-harness-ci-gemma4
+  otlp_endpoint: null

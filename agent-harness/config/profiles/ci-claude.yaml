@@ -1,0 +1,69 @@
+# =============================================================================
+# Profile: ci-claude
+# =============================================================================
+# Non-interactive profile for running evals with Claude online.
+# No `ask` decisions — every tool call is allowed or denied.
+# =============================================================================
+
+name: ci-claude
+profile_type: coding
+log_level: WARNING
+
+model:
+  provider: anthropic
+  name: claude-sonnet-4-20250514
+  temperature: 0.0           # deterministic for reproducibility
+  max_tokens: 4096
+
+agent:
+  max_steps: 30
+  token_budget: 200000
+  wall_clock_timeout_s: 300
+  repetition_threshold: 2
+
+memory:
+  soft_budget_tokens: 16000
+
+sandbox:
+  backend: bubblewrap
+  allow_network: false
+  max_output_bytes: 32768
+
+permissions:
+  default: deny
+  audit_log_path: /tmp/agent-harness-ci-claude-audit.jsonl
+
+  rules:
+    - tool: read_file
+      decision: allow
+    - tool: list_dir
+      decision: allow
+    - tool: search_files
+      decision: allow
+    - tool: write_file
+      decision: allow
+      patterns_deny:
+        - "\\.\\."
+        - "/etc/"
+        - "/usr/"
+    - tool: edit_file
+      decision: allow
+    - tool: bash
+      decision: allow
+      patterns_deny:
+        - "\\brm\\s+-rf?\\s+/"
+        - "\\bsudo\\b"
+        - "\\bcurl\\b"
+        - "\\bwget\\b"
+        - "\\bgit\\s+push\\b"
+        - "\\|\\s*(sh|bash)\\b"
+    - tool: "*"
+      decision: deny
+
+eval:
+  budget_multiplier: 1.0     # Claude est concis, pas besoin de multiplier
+
+observability:
+  enabled: false
+  service_name: agent-harness-ci-claude
+  otlp_endpoint: null

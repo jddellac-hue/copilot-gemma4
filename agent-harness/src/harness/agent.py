@@ -8,7 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from harness.memory import Memory
-from harness.model import OllamaClient, ToolCall
+from harness.model import ModelClient, ToolCall
 from harness.observability import Observability
 from harness.permissions import PermissionPolicy
 from harness.tools import ToolRegistry
@@ -35,7 +35,7 @@ class Agent:
 
     def __init__(
         self,
-        model: OllamaClient,
+        model: ModelClient,
         tools: ToolRegistry,
         permissions: PermissionPolicy,
         memory: Memory,

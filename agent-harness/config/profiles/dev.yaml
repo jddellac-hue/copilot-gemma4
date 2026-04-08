@@ -15,7 +15,7 @@ log_level: INFO
 model:
   provider: ollama
   endpoint: http://localhost:11434
-  name: gemma:7b-instruct    # change to your installed Gemma variant
+  name: gemma:7b-instruct
   temperature: 0.2
   num_ctx: 8192
 

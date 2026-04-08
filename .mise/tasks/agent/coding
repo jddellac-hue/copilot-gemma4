@@ -18,6 +18,11 @@ if [ -z "$TASK" ]; then
     echo ""
     echo "Profil : $PROFILE"
     echo "Modèle : $MODEL"
+    echo ""
+    echo "Autres agents disponibles :"
+    echo "  mise run agent:doc     -- \"...\"   Documentation (Gemma 4 local)"
+    echo "  mise run agent:claude  -- \"...\"   Claude Sonnet (en ligne)"
+    echo "  mise run agent:copilot -- \"...\"   GitHub Copilot (en ligne)"
     exit 1
 fi
 

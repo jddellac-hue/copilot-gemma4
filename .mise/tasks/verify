@@ -1,0 +1,425 @@
+#!/usr/bin/env bash
+#MISE description="Vérification complète du harness : prérequis, install, tests, eval"
+set -uo pipefail
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Couleurs et helpers
+# ─────────────────────────────────────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+PASS=0
+FAIL=0
+WARN=0
+SKIP=0
+TOTAL_START=$(date +%s)
+
+step() { echo -e "\n${BLUE}${BOLD}━━━ $1 ━━━${NC}"; }
+info() { echo -e "    ${BOLD}$1${NC}"; }
+ok()   { echo -e "    ${GREEN}✓ $1${NC}"; PASS=$((PASS + 1)); }
+fail() { echo -e "    ${RED}✗ $1${NC}"; FAIL=$((FAIL + 1)); }
+warn() { echo -e "    ${YELLOW}⚠ $1${NC}"; WARN=$((WARN + 1)); }
+skip() { echo -e "    ${YELLOW}⊘ $1 (skipped)${NC}"; SKIP=$((SKIP + 1)); }
+
+REPO_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+HARNESS_DIR="$REPO_DIR/agent-harness"
+
+echo -e "${BOLD}"
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║            pseudo-copilot — vérification complète           ║"
+echo "╚══════════════════════════════════════════════════════════════╝"
+echo -e "${NC}"
+echo "    Répertoire : $REPO_DIR"
+echo "    Harness    : $HARNESS_DIR"
+echo "    Date       : $(date '+%Y-%m-%d %H:%M:%S')"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. Prérequis système
+# ─────────────────────────────────────────────────────────────────────────────
+step "1/8 — Prérequis système"
+
+# mise
+if command -v mise &>/dev/null; then
+    ok "mise $(mise --version 2>&1 | head -1)"
+else
+    fail "mise non trouvé dans le PATH"
+fi
+
+# python3
+if command -v python3 &>/dev/null; then
+    ok "python3 $(python3 --version 2>&1)"
+else
+    fail "python3 non trouvé"
+fi
+
+# ollama
+if command -v ollama &>/dev/null; then
+    ok "ollama $(ollama --version 2>&1)"
+else
+    fail "ollama non trouvé — installer avec : curl -fsSL https://ollama.com/install.sh | sh"
+fi
+
+# bwrap
+if command -v bwrap &>/dev/null; then
+    # Vérifier s'il fonctionne réellement
+    if bwrap --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib --ro-bind /lib64 /lib64 --proc /proc --dev /dev --tmpfs /tmp --unshare-pid true 2>/dev/null; then
+        ok "bubblewrap (bwrap) fonctionnel"
+    else
+        warn "bubblewrap installé mais bloqué (AppArmor?) — fallback subprocess automatique"
+    fi
+else
+    warn "bubblewrap (bwrap) non installé — le sandbox utilisera subprocess"
+fi
+
+# git
+if command -v git &>/dev/null; then
+    ok "git $(git --version 2>&1)"
+else
+    warn "git non trouvé"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. Ollama service
+# ─────────────────────────────────────────────────────────────────────────────
+step "2/8 — Service Ollama"
+
+if curl -sf http://localhost:11434/api/version &>/dev/null; then
+    OLLAMA_VER=$(curl -sf http://localhost:11434/api/version | python3 -c "import sys,json; print(json.load(sys.stdin).get('version','?'))" 2>/dev/null || echo "?")
+    ok "Ollama en écoute sur localhost:11434 (v$OLLAMA_VER)"
+
+    # RAM disponible
+    TOTAL_RAM=$(free -g 2>/dev/null | awk '/^Mem:/{print $2}' || echo "?")
+    AVAIL_RAM=$(free -g 2>/dev/null | awk '/^Mem:/{print $7}' || echo "?")
+    info "RAM : ${AVAIL_RAM}G disponible / ${TOTAL_RAM}G total"
+
+    # Modèles en mémoire
+    LOADED=$(curl -sf http://localhost:11434/api/ps 2>/dev/null | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+models = d.get('models',[])
+if models:
+    for m in models:
+        size_gb = round(m.get('size',0)/1e9, 1)
+        print(f\"  {m['name']} ({size_gb} GB en RAM)\")
+else:
+    print('  (aucun modèle chargé)')
+" 2>/dev/null || echo "  (impossible de lister)")
+    info "Modèles en mémoire :"
+    echo "$LOADED"
+
+    OLLAMA_OK=true
+else
+    fail "Ollama ne répond pas sur localhost:11434"
+    info "Démarrez avec : ollama serve"
+    OLLAMA_OK=false
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. Modèles installés
+# ─────────────────────────────────────────────────────────────────────────────
+step "3/8 — Modèles Ollama installés"
+
+if [ "$OLLAMA_OK" = true ]; then
+    REQUIRED_MODELS=(
+        "gemma4:26b-a4b-it-q8_0"
+        "gemma:7b-instruct"
+    )
+    RECOMMENDED_MODELS=(
+    )
+    OPTIONAL_MODELS=(
+        "gemma4:e4b"
+        "gemma4:26b"
+        "gemma4:31b"
+    )
+
+    INSTALLED=$(ollama list 2>/dev/null)
+
+    for model in "${REQUIRED_MODELS[@]}"; do
+        if echo "$INSTALLED" | grep -q "$model"; then
+            SIZE=$(echo "$INSTALLED" | grep "$model" | awk '{print $3, $4}')
+            ok "$model ($SIZE)"
+        else
+            fail "$model non installé (requis)"
+            info "Installer avec : ollama pull $model"
+        fi
+    done
+
+    for model in "${RECOMMENDED_MODELS[@]}"; do
+        if echo "$INSTALLED" | grep -q "$model"; then
+            SIZE=$(echo "$INSTALLED" | grep "$model" | awk '{print $3, $4}')
+            ok "$model ($SIZE) [recommandé]"
+        else
+            warn "$model non installé (recommandé pour les profils dev/ci/ops)"
+            info "Installer avec : ollama pull $model"
+        fi
+    done
+
+    for model in "${OPTIONAL_MODELS[@]}"; do
+        if echo "$INSTALLED" | grep -q "$model"; then
+            SIZE=$(echo "$INSTALLED" | grep "$model" | awk '{print $3, $4}')
+            ok "$model ($SIZE) [optionnel]"
+        else
+            skip "$model (optionnel)"
+        fi
+    done
+else
+    skip "Vérification des modèles (Ollama hors ligne)"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. Installation du harness
+# ─────────────────────────────────────────────────────────────────────────────
+step "4/8 — Installation agent-harness"
+
+if [ -f "$HARNESS_DIR/.venv/bin/harness" ]; then
+    ok "venv trouvé : $HARNESS_DIR/.venv/"
+    HARNESS_VER=$("$HARNESS_DIR/.venv/bin/harness" --help 2>&1 | head -1 || echo "?")
+    ok "CLI harness disponible"
+
+    # Vérifier les extras installés
+    if "$HARNESS_DIR/.venv/bin/python3" -c "import anthropic" 2>/dev/null; then
+        ok "Extra [anthropic] installé"
+    else
+        warn "Extra [anthropic] manquant — pip install -e '.[anthropic]'"
+    fi
+
+    if "$HARNESS_DIR/.venv/bin/python3" -c "import openai" 2>/dev/null; then
+        ok "Extra [openai] installé"
+    else
+        warn "Extra [openai] manquant — pip install -e '.[openai]'"
+    fi
+
+    if "$HARNESS_DIR/.venv/bin/python3" -c "import chromadb" 2>/dev/null; then
+        ok "Extra [rag] installé"
+    else
+        skip "Extra [rag] (chromadb) non installé"
+    fi
+
+    HARNESS_OK=true
+else
+    fail "agent-harness non installé"
+    info "Installer avec : mise run agent:setup"
+    HARNESS_OK=false
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. Profils de configuration
+# ─────────────────────────────────────────────────────────────────────────────
+step "5/8 — Profils de configuration"
+
+PROFILES_DIR="$HARNESS_DIR/config/profiles"
+EXPECTED_PROFILES=(
+    "dev.yaml"
+    "ci.yaml"
+    "ci-gemma4.yaml"
+    "ci-claude.yaml"
+    "ci-copilot.yaml"
+    "gemma4-coding.yaml"
+    "gemma4-doc.yaml"
+    "claude-online.yaml"
+    "copilot.yaml"
+    "ops.yaml"
+    "prod-ro.yaml"
+)
+
+for profile in "${EXPECTED_PROFILES[@]}"; do
+    if [ -f "$PROFILES_DIR/$profile" ]; then
+        PROVIDER=$(grep -E "^\s+provider:" "$PROFILES_DIR/$profile" 2>/dev/null | awk '{print $2}' | head -1)
+        MODEL_NAME=$(grep -E "^\s+name:" "$PROFILES_DIR/$profile" 2>/dev/null | awk '{print $2}' | head -1)
+        ok "$profile (${PROVIDER:-ollama} / ${MODEL_NAME:-?})"
+    else
+        fail "$profile manquant"
+    fi
+done
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. Tests unitaires + intégration
+# ─────────────────────────────────────────────────────────────────────────────
+step "6/8 — Tests unitaires + intégration"
+
+if [ "$HARNESS_OK" = true ]; then
+    cd "$HARNESS_DIR"
+
+    info "Lancement des tests unitaires..."
+    UNIT_OUTPUT=$(.venv/bin/pytest tests/unit -q --tb=line 2>&1)
+    UNIT_EXIT=$?
+    UNIT_SUMMARY=$(echo "$UNIT_OUTPUT" | tail -1)
+
+    if [ $UNIT_EXIT -eq 0 ]; then
+        ok "Tests unitaires : $UNIT_SUMMARY"
+    else
+        fail "Tests unitaires : $UNIT_SUMMARY"
+        echo "$UNIT_OUTPUT" | grep "FAILED" | head -10 | while read -r line; do
+            info "  $line"
+        done
+    fi
+
+    info "Lancement des tests d'intégration..."
+    INT_OUTPUT=$(.venv/bin/pytest tests/integration -q --tb=line 2>&1)
+    INT_EXIT=$?
+    INT_SUMMARY=$(echo "$INT_OUTPUT" | tail -1)
+
+    if [ $INT_EXIT -eq 0 ]; then
+        ok "Tests intégration : $INT_SUMMARY"
+    else
+        fail "Tests intégration : $INT_SUMMARY"
+    fi
+
+    cd "$REPO_DIR"
+else
+    skip "Tests unitaires (harness non installé)"
+    skip "Tests intégration (harness non installé)"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. API keys (providers en ligne)
+# ─────────────────────────────────────────────────────────────────────────────
+step "7/8 — Clés API (providers en ligne)"
+
+if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+    # Masquer la clé
+    MASKED="${ANTHROPIC_API_KEY:0:12}...${ANTHROPIC_API_KEY: -4}"
+    ok "ANTHROPIC_API_KEY définie ($MASKED)"
+else
+    skip "ANTHROPIC_API_KEY non définie (Claude indisponible)"
+fi
+
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+    MASKED="${GITHUB_TOKEN:0:8}...${GITHUB_TOKEN: -4}"
+    ok "GITHUB_TOKEN défini ($MASKED)"
+else
+    skip "GITHUB_TOKEN non défini (Copilot indisponible)"
+fi
+
+if [ -n "${DT_API_TOKEN:-}" ]; then
+    ok "DT_API_TOKEN défini (Dynatrace disponible)"
+else
+    skip "DT_API_TOKEN non défini (Dynatrace indisponible)"
+fi
+
+if [ -n "${CONCOURSE_TOKEN:-}" ]; then
+    ok "CONCOURSE_TOKEN défini (Concourse disponible)"
+else
+    skip "CONCOURSE_TOKEN non défini (Concourse indisponible)"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. Eval smoke test (optionnel, si Ollama + modèle dispo)
+# ─────────────────────────────────────────────────────────────────────────────
+step "8/8 — Eval smoke test"
+
+EVAL_PROVIDER="${1:-}"
+
+if [ -n "$EVAL_PROVIDER" ]; then
+    info "Lancement de l'eval ($EVAL_PROVIDER)..."
+    case "$EVAL_PROVIDER" in
+        gemma4)
+            if [ "$OLLAMA_OK" != true ]; then
+                skip "Eval gemma4 (Ollama hors ligne)"
+            else
+                cd "$HARNESS_DIR"
+                EVAL_OUTPUT=$(PYTHONPATH=. .venv/bin/harness eval --profile config/profiles/ci-gemma4.yaml 2>&1)
+                EVAL_EXIT=$?
+                echo "$EVAL_OUTPUT" | grep -E "^\s+(✓|✗)" | while read -r line; do
+                    echo "    $line"
+                done
+                EVAL_TOTAL=$(echo "$EVAL_OUTPUT" | grep "total:" | head -1)
+                if [ $EVAL_EXIT -eq 0 ]; then
+                    ok "Eval : $EVAL_TOTAL"
+                else
+                    fail "Eval : $EVAL_TOTAL"
+                fi
+                cd "$REPO_DIR"
+            fi
+            ;;
+        claude)
+            if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+                skip "Eval claude (ANTHROPIC_API_KEY manquante)"
+            else
+                cd "$HARNESS_DIR"
+                EVAL_OUTPUT=$(PYTHONPATH=. .venv/bin/harness eval --profile config/profiles/ci-claude.yaml 2>&1)
+                EVAL_EXIT=$?
+                echo "$EVAL_OUTPUT" | grep -E "^\s+(✓|✗)" | while read -r line; do
+                    echo "    $line"
+                done
+                EVAL_TOTAL=$(echo "$EVAL_OUTPUT" | grep "total:" | head -1)
+                if [ $EVAL_EXIT -eq 0 ]; then
+                    ok "Eval : $EVAL_TOTAL"
+                else
+                    fail "Eval : $EVAL_TOTAL"
+                fi
+                cd "$REPO_DIR"
+            fi
+            ;;
+        copilot)
+            if [ -z "${GITHUB_TOKEN:-}" ]; then
+                skip "Eval copilot (GITHUB_TOKEN manquant)"
+            else
+                cd "$HARNESS_DIR"
+                EVAL_OUTPUT=$(PYTHONPATH=. .venv/bin/harness eval --profile config/profiles/ci-copilot.yaml 2>&1)
+                EVAL_EXIT=$?
+                echo "$EVAL_OUTPUT" | grep -E "^\s+(✓|✗)" | while read -r line; do
+                    echo "    $line"
+                done
+                EVAL_TOTAL=$(echo "$EVAL_OUTPUT" | grep "total:" | head -1)
+                if [ $EVAL_EXIT -eq 0 ]; then
+                    ok "Eval : $EVAL_TOTAL"
+                else
+                    fail "Eval : $EVAL_TOTAL"
+                fi
+                cd "$REPO_DIR"
+            fi
+            ;;
+        *)
+            fail "Provider inconnu : $EVAL_PROVIDER (gemma4|claude|copilot)"
+            ;;
+    esac
+else
+    info "Aucun provider spécifié — eval non lancé"
+    info "Pour lancer l'eval : mise run verify -- gemma4|claude|copilot"
+    skip "Eval smoke test"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Rapport final
+# ─────────────────────────────────────────────────────────────────────────────
+TOTAL_END=$(date +%s)
+DURATION=$((TOTAL_END - TOTAL_START))
+
+echo ""
+echo -e "${BOLD}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BOLD}║                      RAPPORT FINAL                          ║${NC}"
+echo -e "${BOLD}╠══════════════════════════════════════════════════════════════╣${NC}"
+echo -e "║  ${GREEN}✓ Passé  : ${PASS}${NC}"
+echo -e "║  ${RED}✗ Échoué : ${FAIL}${NC}"
+echo -e "║  ${YELLOW}⚠ Avertis: ${WARN}${NC}"
+echo -e "║  ${YELLOW}⊘ Ignoré : ${SKIP}${NC}"
+echo -e "║  Durée   : ${DURATION}s"
+echo -e "${BOLD}╚══════════════════════════════════════════════════════════════╝${NC}"
+
+if [ $FAIL -gt 0 ]; then
+    echo ""
+    echo -e "${RED}${BOLD}Des vérifications ont échoué. Corrigez les erreurs ci-dessus.${NC}"
+    echo ""
+    echo -e "Commandes utiles :"
+    echo -e "  mise run agent:setup             Installer le harness"
+    echo -e "  ollama pull <model>              Installer un modèle"
+    echo -e "  ollama serve                     Démarrer Ollama"
+    echo -e "  mise task ls                     Voir toutes les commandes"
+    exit 1
+else
+    echo ""
+    echo -e "${GREEN}${BOLD}Tout est opérationnel !${NC}"
+    echo ""
+    echo -e "Prochaines étapes :"
+    echo -e "  mise run agent:coding  -- \"tâche\"    Agent local (Gemma 4)"
+    echo -e "  mise run agent:claude  -- \"tâche\"    Agent Claude (en ligne)"
+    echo -e "  mise run agent:copilot -- \"tâche\"    Agent Copilot (en ligne)"
+    echo -e "  mise run agent:eval    -- gemma4     Évaluation complète"
+    echo -e "  mise task ls                         Toutes les commandes"
+    exit 0
+fi

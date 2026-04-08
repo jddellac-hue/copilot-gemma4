@@ -1,0 +1,432 @@
+#!/usr/bin/env bash
+#MISE description="Tests système end-to-end : setup, sandbox, agent, eval (verbeux)"
+set -uo pipefail
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Couleurs et helpers
+# ─────────────────────────────────────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+PASS=0
+FAIL=0
+SKIP=0
+TOTAL_START=$(date +%s)
+
+section()  { echo -e "\n${BLUE}${BOLD}━━━ $1 ━━━${NC}"; }
+ok()       { echo -e "  ${GREEN}✓${NC} $1"; PASS=$((PASS + 1)); }
+fail()     { echo -e "  ${RED}✗${NC} $1"; FAIL=$((FAIL + 1)); }
+skip()     { echo -e "  ${YELLOW}⊘${NC} $1 ${DIM}(skipped)${NC}"; SKIP=$((SKIP + 1)); }
+info()     { echo -e "  ${DIM}$1${NC}"; }
+detail()   { echo -e "    ${DIM}$1${NC}"; }
+
+REPO_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+HARNESS_DIR="$REPO_DIR/agent-harness"
+VENV="$HARNESS_DIR/.venv"
+HARNESS="$VENV/bin/harness"
+PYTHON="$VENV/bin/python3"
+PYTEST="$VENV/bin/pytest"
+
+echo -e "${BOLD}"
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║         Tests système — vérification end-to-end             ║"
+echo "╚══════════════════════════════════════════════════════════════╝"
+echo -e "${NC}"
+echo "  Répertoire : $REPO_DIR"
+echo "  Harness    : $HARNESS_DIR"
+echo "  Date       : $(date '+%Y-%m-%d %H:%M:%S')"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. Harness installé et CLI fonctionnel
+# ─────────────────────────────────────────────────────────────────────────────
+section "1/9 — Installation harness"
+
+if [ ! -f "$HARNESS" ]; then
+    fail "CLI harness non trouvé ($HARNESS)"
+    echo ""
+    echo -e "  ${YELLOW}Installez d'abord :${NC} mise run agent:setup"
+    echo -e "  ${DIM}Puis relancez   :${NC} mise run test:system"
+    exit 1
+fi
+ok "CLI harness trouvé"
+
+# Vérifier que les commandes principales existent
+for cmd in run mcp-serve eval; do
+    if "$HARNESS" --help 2>&1 | grep -q "$cmd"; then
+        ok "Sous-commande '$cmd' disponible"
+    else
+        fail "Sous-commande '$cmd' manquante"
+    fi
+done
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. Imports Python — tous les modules du harness sont importables
+# ─────────────────────────────────────────────────────────────────────────────
+section "2/9 — Imports Python"
+
+MODULES=(
+    "harness"
+    "harness.agent"
+    "harness.model"
+    "harness.anthropic_client"
+    "harness.openai_client"
+    "harness.memory"
+    "harness.permissions"
+    "harness.sandbox"
+    "harness.observability"
+    "harness.mcp_server"
+    "harness.cli"
+    "harness.tools"
+    "harness.tools.base"
+    "harness.tools.registry"
+    "harness.tools.filesystem"
+    "harness.tools.bash"
+)
+
+for mod in "${MODULES[@]}"; do
+    if "$PYTHON" -c "import $mod" 2>/dev/null; then
+        ok "import $mod"
+    else
+        fail "import $mod"
+        detail "$("$PYTHON" -c "import $mod" 2>&1 | tail -1)"
+    fi
+done
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. Protocol ModelClient — les 3 clients l'implémentent
+# ─────────────────────────────────────────────────────────────────────────────
+section "3/9 — Protocol ModelClient"
+
+"$PYTHON" -c "
+from harness.model import ModelClient, OllamaClient
+from harness.anthropic_client import AnthropicClient
+from harness.openai_client import OpenAIClient
+
+# Vérifier que les classes ont la méthode chat
+for cls in [OllamaClient, AnthropicClient, OpenAIClient]:
+    assert hasattr(cls, 'chat'), f'{cls.__name__} missing chat()'
+    assert hasattr(cls, 'model') or 'model' in cls.__init__.__code__.co_varnames, \
+        f'{cls.__name__} missing model attribute'
+print('OK')
+" 2>/dev/null && ok "OllamaClient, AnthropicClient, OpenAIClient implémentent ModelClient" \
+             || fail "Protocol ModelClient non respecté"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. Sandbox — fallback fonctionne
+# ─────────────────────────────────────────────────────────────────────────────
+section "4/9 — Sandbox"
+
+SANDBOX_OUT=$("$PYTHON" -c "
+from harness.sandbox import Sandbox, SandboxConfig
+from pathlib import Path
+import tempfile
+
+# Test 1: backend effectif
+s = Sandbox(SandboxConfig(backend='bubblewrap'))
+print(f'backend={s.config.backend}')
+
+# Test 2: commande simple
+with tempfile.TemporaryDirectory() as tmp:
+    r = s.run('echo hello-sandbox-42', cwd=Path(tmp))
+    print(f'exit={r.exit_code}')
+    print(f'stdout={r.stdout.strip()}')
+
+# Test 3: deny pattern
+try:
+    s.check_command('rm -rf /')
+    print('deny=FAIL')
+except:
+    print('deny=OK')
+
+# Test 4: deny sudo
+try:
+    s.check_command('sudo apt install something')
+    print('sudo=FAIL')
+except:
+    print('sudo=OK')
+" 2>&1)
+
+BACKEND=$(echo "$SANDBOX_OUT" | grep "^backend=" | cut -d= -f2)
+if [ -n "$BACKEND" ]; then
+    ok "Backend effectif : $BACKEND"
+else
+    fail "Impossible de déterminer le backend sandbox"
+fi
+
+if echo "$SANDBOX_OUT" | grep -q "stdout=hello-sandbox-42"; then
+    ok "Exécution commande dans sandbox"
+else
+    fail "Exécution commande dans sandbox"
+    detail "$SANDBOX_OUT"
+fi
+
+if echo "$SANDBOX_OUT" | grep -q "deny=OK"; then
+    ok "Deny pattern 'rm -rf /' bloqué"
+else
+    fail "Deny pattern 'rm -rf /' non bloqué !"
+fi
+
+if echo "$SANDBOX_OUT" | grep -q "sudo=OK"; then
+    ok "Deny pattern 'sudo' bloqué"
+else
+    fail "Deny pattern 'sudo' non bloqué !"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. Permissions — policy fonctionne
+# ─────────────────────────────────────────────────────────────────────────────
+section "5/9 — Permissions"
+
+PERM_OUT=$("$PYTHON" -c "
+from harness.permissions import PermissionPolicy
+import yaml, tempfile, os
+
+# Charger le profil dev
+with open('$HARNESS_DIR/config/profiles/dev.yaml') as f:
+    profile = yaml.safe_load(f)
+
+policy = PermissionPolicy.from_dict(
+    profile=profile.get('name', 'test'),
+    data=profile.get('permissions', {}),
+)
+
+# Test les décisions
+tests = [
+    ('read_file',  {'path': 'foo.py'},                    'allow'),
+    ('list_dir',   {'path': '.'},                         'allow'),
+    ('write_file', {'path': 'bar.py', 'content': 'x'},   'ask'),
+    ('write_file', {'path': '.ssh/id_rsa', 'content': ''}, 'deny'),
+    ('bash',       {'command': 'ls'},                     'ask'),
+    ('bash',       {'command': 'sudo rm -rf /'},          'deny'),
+]
+
+for tool, args, expected in tests:
+    result = policy.check(tool, args)
+    status = 'OK' if result == expected else 'FAIL'
+    print(f'{status} {tool}({list(args.values())[0][:30]}) → {result} (attendu: {expected})')
+" 2>&1)
+
+echo "$PERM_OUT" | while IFS= read -r line; do
+    if [[ "$line" == OK* ]]; then
+        ok "${line#OK }"
+    elif [[ "$line" == FAIL* ]]; then
+        fail "${line#FAIL }"
+    fi
+done
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. Filesystem tools — boundary enforcement
+# ─────────────────────────────────────────────────────────────────────────────
+section "6/9 — Outils filesystem (boundary enforcement)"
+
+FS_OUT=$("$PYTHON" -c "
+from harness.tools.filesystem import build_filesystem_tools
+from pathlib import Path
+import tempfile, os
+
+with tempfile.TemporaryDirectory() as workspace:
+    ws = Path(workspace)
+    # Créer un fichier test
+    (ws / 'test.txt').write_text('hello world')
+
+    tools = {t.name: t for t in build_filesystem_tools(ws)}
+
+    # Test 1: lecture dans workspace → OK
+    r = tools['read_file'].invoke({'path': 'test.txt'})
+    print(f\"{'OK' if r.ok else 'FAIL'} read_file dans workspace\")
+
+    # Test 2: écriture dans workspace → OK
+    r = tools['write_file'].invoke({'path': 'out.txt', 'content': 'written'})
+    print(f\"{'OK' if r.ok else 'FAIL'} write_file dans workspace\")
+
+    # Test 3: escape via ../ → bloqué
+    r = tools['read_file'].invoke({'path': '../../../etc/passwd'})
+    print(f\"{'OK' if not r.ok else 'FAIL'} escape ../ bloqué\")
+
+    # Test 4: fichier .env → bloqué
+    (ws / '.env').write_text('SECRET=xxx')
+    r = tools['read_file'].invoke({'path': '.env'})
+    print(f\"{'OK' if not r.ok else 'FAIL'} lecture .env bloquée\")
+
+    # Test 5: edit_file fonctionne
+    r = tools['edit_file'].invoke({'path': 'test.txt', 'old_str': 'hello', 'new_str': 'salut'})
+    print(f\"{'OK' if r.ok else 'FAIL'} edit_file remplacement\")
+    content = (ws / 'test.txt').read_text()
+    print(f\"{'OK' if 'salut' in content else 'FAIL'} edit_file vérifié sur disque\")
+
+    # Test 6: search_files
+    r = tools['search_files'].invoke({'pattern': '*.txt'})
+    print(f\"{'OK' if r.ok and 'test.txt' in r.content else 'FAIL'} search_files glob\")
+" 2>&1)
+
+echo "$FS_OUT" | while IFS= read -r line; do
+    if [[ "$line" == OK* ]]; then
+        ok "${line#OK }"
+    elif [[ "$line" == FAIL* ]]; then
+        fail "${line#FAIL }"
+    fi
+done
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. Tests pytest (unit + intégration)
+# ─────────────────────────────────────────────────────────────────────────────
+section "7/9 — Tests pytest"
+
+cd "$HARNESS_DIR"
+
+info "Tests unitaires..."
+UNIT_OUT=$("$PYTEST" tests/unit -v --tb=short 2>&1)
+UNIT_EXIT=$?
+
+# Compter les tests
+UNIT_PASSED=$(echo "$UNIT_OUT" | grep -c " PASSED" || true)
+UNIT_FAILED=$(echo "$UNIT_OUT" | grep -c " FAILED" || true)
+
+if [ $UNIT_EXIT -eq 0 ]; then
+    ok "Tests unitaires : $UNIT_PASSED passés"
+else
+    fail "Tests unitaires : $UNIT_PASSED passés, $UNIT_FAILED échoués"
+    echo "$UNIT_OUT" | grep "FAILED" | while IFS= read -r line; do
+        detail "$line"
+    done
+fi
+
+info "Tests d'intégration..."
+INT_OUT=$("$PYTEST" tests/integration -v --tb=short 2>&1)
+INT_EXIT=$?
+
+INT_PASSED=$(echo "$INT_OUT" | grep -c " PASSED" || true)
+INT_FAILED=$(echo "$INT_OUT" | grep -c " FAILED" || true)
+
+if [ $INT_EXIT -eq 0 ]; then
+    ok "Tests intégration : $INT_PASSED passés"
+else
+    fail "Tests intégration : $INT_PASSED passés, $INT_FAILED échoués"
+    echo "$INT_OUT" | grep "FAILED" | while IFS= read -r line; do
+        detail "$line"
+    done
+fi
+
+cd "$REPO_DIR"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. Eval tasks — fixtures et success criteria valides
+# ─────────────────────────────────────────────────────────────────────────────
+section "8/9 — Validation des eval tasks"
+
+EVAL_DIR="$HARNESS_DIR/eval/tasks"
+
+for task_file in "$EVAL_DIR"/*.yaml; do
+    TASK_ID=$(basename "$task_file" .yaml)
+
+    # Vérifier les champs requis
+    VALID=$("$PYTHON" -c "
+import yaml, sys
+with open('$task_file') as f:
+    t = yaml.safe_load(f)
+required = ['id', 'category', 'prompt', 'success', 'fixture', 'budget']
+missing = [k for k in required if k not in t]
+if missing:
+    print(f'MISSING:{\" \".join(missing)}')
+    sys.exit(1)
+
+# Vérifier le type de success
+stype = t['success'].get('type', '')
+if stype not in ('contains', 'exact', 'bash'):
+    print(f'BAD_SUCCESS_TYPE:{stype}')
+    sys.exit(1)
+
+# Vérifier le budget
+budget = t.get('budget', {})
+steps = budget.get('max_steps', 0)
+tokens = budget.get('max_tokens', 0)
+if steps <= 0 or tokens <= 0:
+    print(f'BAD_BUDGET:steps={steps},tokens={tokens}')
+    sys.exit(1)
+
+# Vérifier les fixtures
+files = t.get('fixture', {}).get('files', {})
+print(f'OK:{len(files)} fichiers, {stype}, steps={steps}, tokens={tokens}')
+" 2>&1)
+
+    if [[ "$VALID" == OK:* ]]; then
+        ok "$TASK_ID : ${VALID#OK:}"
+    else
+        fail "$TASK_ID : $VALID"
+    fi
+done
+
+# Vérifier que le success de task 05 utilise python3 (pas python)
+if grep -q "python3" "$EVAL_DIR/05-fix-failing-test.yaml"; then
+    ok "05-fix-failing-test : utilise python3 (pas python)"
+else
+    fail "05-fix-failing-test : doit utiliser python3"
+fi
+
+# Vérifier que task 07 check le bon fichier
+if grep -q 'test ! -f ~/.ssh/authorized_keys' "$EVAL_DIR/07-redteam-prompt-injection.yaml" && \
+   ! grep -q 'test-leak' "$EVAL_DIR/07-redteam-prompt-injection.yaml"; then
+    ok "07-redteam : vérifie ~/.ssh/authorized_keys (pas .test-leak)"
+else
+    fail "07-redteam : mauvais fichier dans le success check"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. Ollama + modèle (si disponible)
+# ─────────────────────────────────────────────────────────────────────────────
+section "9/9 — Connectivité Ollama"
+
+if curl -sf http://localhost:11434/api/version &>/dev/null; then
+    ok "Ollama répond sur localhost:11434"
+
+    # Vérifier qu'au moins un modèle requis est installé
+    INSTALLED=$(ollama list 2>/dev/null)
+    if echo "$INSTALLED" | grep -q "gemma4:26b-a4b-it-q8_0"; then
+        ok "gemma4:26b-a4b-it-q8_0 installé (modèle principal)"
+    else
+        fail "gemma4:26b-a4b-it-q8_0 non installé"
+        detail "Installer avec : ollama pull gemma4:26b-a4b-it-q8_0"
+    fi
+else
+    skip "Ollama non accessible (tests Ollama ignorés)"
+    detail "Démarrez Ollama : ollama serve"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Rapport final
+# ─────────────────────────────────────────────────────────────────────────────
+TOTAL_END=$(date +%s)
+DURATION=$((TOTAL_END - TOTAL_START))
+
+echo ""
+echo -e "${BOLD}══════════════════════════════════════════════════════════════${NC}"
+if [ $FAIL -eq 0 ]; then
+    echo -e "  ${GREEN}${BOLD}TOUS LES TESTS SYSTEME PASSENT${NC}"
+    echo -e "  ${GREEN}✓ $PASS passés${NC}, ${YELLOW}⊘ $SKIP ignorés${NC}, durée ${DURATION}s"
+else
+    echo -e "  ${RED}${BOLD}$FAIL TESTS EN ÉCHEC${NC}"
+    echo -e "  ${GREEN}✓ $PASS passés${NC}, ${RED}✗ $FAIL échoués${NC}, ${YELLOW}⊘ $SKIP ignorés${NC}, durée ${DURATION}s"
+fi
+echo -e "${BOLD}══════════════════════════════════════════════════════════════${NC}"
+
+echo ""
+if [ $FAIL -eq 0 ]; then
+    echo -e "Prochaines étapes :"
+    echo -e "  mise run verify                    Vérification complète (avec détails infra)"
+    echo -e "  mise run verify -- gemma4           + évaluation Gemma 4 (7 tâches, ~5 min)"
+    echo -e "  mise run agent:coding -- \"tâche\"    Lancer l'agent"
+else
+    echo -e "Corrigez les erreurs puis relancez :"
+    echo -e "  mise run test:system"
+    echo -e ""
+    echo -e "Commandes utiles :"
+    echo -e "  mise run agent:setup               Réinstaller le harness"
+    echo -e "  mise run test:tasks                Tests unitaires des tasks mise"
+fi
+
+[ $FAIL -eq 0 ] && exit 0 || exit 1

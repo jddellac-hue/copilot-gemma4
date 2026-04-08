@@ -9,15 +9,18 @@
 
 ## What this project is
 
-A local **agentic harness** around a Gemma model served by Ollama. It
-provides: a ReAct agent loop, a tool registry (filesystem, sandboxed bash,
-Dynatrace, Kubernetes, runbook RAG, Concourse), a three-state permission
-policy (allow/ask/deny), a bubblewrap sandbox, OpenTelemetry observability,
+A **multi-provider agentic harness** supporting Ollama (Gemma, local),
+Anthropic (Claude, en ligne) and OpenAI-compatible endpoints (GitHub
+Copilot, OpenAI, Azure). It provides: a ReAct agent loop, a tool registry
+(filesystem, sandboxed bash, Dynatrace, Kubernetes, runbook RAG,
+Concourse), a three-state permission policy (allow/ask/deny), a bubblewrap
+sandbox (with automatic subprocess fallback), OpenTelemetry observability,
 and an MCP server that re-exposes the tool surface to other clients.
 
-The harness is the **skeleton**; the model (Gemma via Ollama) is the
-**brain**. They are decoupled — swapping the model means editing one line
-in a profile YAML.
+The harness is the **skeleton**; the model is the **brain**. They are
+decoupled — swapping the model means editing one line in a profile YAML.
+Three providers are implemented via the `ModelClient` protocol in
+`model.py`: `OllamaClient`, `AnthropicClient`, `OpenAIClient`.
 
 ## Reading order for a new session
 
@@ -37,10 +40,12 @@ change, read the KB section for the relevant sub-system first.
 ```
 src/harness/
 ├── agent.py              # ReAct loop
-├── model.py              # Ollama client, tool-call parsing
+├── model.py              # ModelClient protocol + Ollama client
+├── anthropic_client.py   # Anthropic (Claude) client
+├── openai_client.py      # OpenAI-compat client (Copilot, etc.)
 ├── memory.py             # Conversation memory + compaction
 ├── permissions.py        # allow/ask/deny policy
-├── sandbox.py            # bubblewrap / subprocess backend
+├── sandbox.py            # bubblewrap / subprocess (auto-fallback)
 ├── observability.py      # OTel tracing & metrics
 ├── mcp_server.py         # Expose harness tools as MCP
 ├── cli.py                # Typer entry point (run, mcp-serve, eval)
@@ -54,7 +59,7 @@ src/harness/
     ├── runbooks.py       # Chroma RAG over markdown runbooks
     └── concourse.py      # concourse_pipelines/builds/build_logs
 
-config/profiles/          # dev.yaml, ci.yaml, prod-ro.yaml, ops.yaml
+config/profiles/          # dev, ci, gemma4-*, claude-*, copilot, ops, prod-ro
 eval/tasks/               # 7 reproducible eval tasks (YAML)
 tests/unit/               # Permissions, sandbox, tools, k8s, runbooks, SSE
 tests/integration/        # Agent loop with mocked model
@@ -148,15 +153,26 @@ on review, or worse, someone gets compromised.
 
 ## Profiles — which one to use when
 
+**Local (Ollama) :**
 - `dev.yaml` — everyday coding sessions, mutations gated behind `ask`
-- `ci.yaml` — deterministic, non-interactive, used by `harness eval` in CI
+- `gemma4-coding.yaml` — Gemma 4 26B MoE, production coding
+- `gemma4-doc.yaml` — Gemma 4 26B MoE, documentation
+- `ci.yaml` — deterministic, non-interactive (Gemma 4 E4B)
+- `ci-gemma4.yaml` — deterministic, non-interactive (Gemma 4 26B MoE)
+
+**En ligne :**
+- `claude-online.yaml` — Claude Sonnet, interactive
+- `ci-claude.yaml` — Claude Sonnet, non-interactive (evals)
+- `copilot.yaml` — GitHub Copilot / Models API, interactive
+- `ci-copilot.yaml` — GitHub Copilot, non-interactive (evals)
+
+**Ops :**
+- `ops.yaml` — full ops stack (Dynatrace + K8s + Runbooks + Concourse)
 - `prod-ro.yaml` — minimal read-only profile for investigating a workspace
-- `ops.yaml` — full ops stack (Dynatrace + K8s + Runbooks + Concourse),
-  read-only by construction, intended for production incident work
 
 To investigate a **different** Kubernetes cluster, copy `ops.yaml` to
 `ops-<cluster>.yaml` and change the `kubernetes.context`. Do NOT try to
-make the harness switch context at runtime — it's forbidden by design.
+make the harness switch context at runtime ��� it's forbidden by design.
 
 ## Common tasks and where to look
 

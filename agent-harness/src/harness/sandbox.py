@@ -77,12 +77,43 @@ class Sandbox:
     def __init__(self, config: SandboxConfig) -> None:
         self.config = config
         self._compiled_deny = [re.compile(p) for p in config.deny_patterns]
-        if config.backend == "bubblewrap" and not shutil.which("bwrap"):
-            logger.warning(
-                "bubblewrap requested but `bwrap` not found in PATH; "
-                "falling back to subprocess backend"
+        if config.backend == "bubblewrap":
+            if not shutil.which("bwrap"):
+                logger.warning(
+                    "bubblewrap requested but `bwrap` not found in PATH; "
+                    "falling back to subprocess backend"
+                )
+                self.config.backend = "subprocess"
+            elif not self._bwrap_works():
+                logger.warning(
+                    "bubblewrap requested but `bwrap` fails at runtime "
+                    "(likely AppArmor or kernel restrictions); "
+                    "falling back to subprocess backend"
+                )
+                self.config.backend = "subprocess"
+
+    @staticmethod
+    def _bwrap_works() -> bool:
+        """Smoke-test bwrap with a trivial command."""
+        try:
+            proc = subprocess.run(
+                [
+                    "bwrap", "--ro-bind", "/usr", "/usr",
+                    "--ro-bind", "/bin", "/bin",
+                    "--ro-bind", "/lib", "/lib",
+                    "--ro-bind", "/lib64", "/lib64",
+                    "--proc", "/proc", "--dev", "/dev",
+                    "--tmpfs", "/tmp",
+                    "--unshare-pid",
+                    "true",
+                ],
+                capture_output=True,
+                timeout=5,
+                check=False,
             )
-            self.config.backend = "subprocess"
+            return proc.returncode == 0
+        except Exception:  # noqa: BLE001
+            return False
 
     def check_command(self, command: str) -> None:
         """Raise SandboxError if the command matches a deny pattern."""

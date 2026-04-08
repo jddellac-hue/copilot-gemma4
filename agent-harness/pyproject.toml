@@ -34,8 +34,14 @@ dev = [
 rag = [
     "chromadb>=0.5",
 ]
+anthropic = [
+    "anthropic>=0.42",
+]
+openai = [
+    "openai>=1.30",
+]
 all = [
-    "agent-harness[dev,rag]",
+    "agent-harness[dev,rag,anthropic,openai]",
 ]
 
 [project.scripts]

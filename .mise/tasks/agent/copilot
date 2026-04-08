@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+#MISE description="Lancer l'agent coding avec GitHub Copilot (Models API)"
+set -euo pipefail
+
+TASK="${1:-}"
+WORKSPACE="${2:-.}"
+HARNESS_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}/agent-harness"
+PROFILE="$HARNESS_DIR/config/profiles/copilot.yaml"
+MODEL="${COPILOT_MODEL:-gpt-4o}"
+
+if [ -z "$TASK" ]; then
+    echo "Usage: mise run agent:copilot -- \"<tâche>\" [workspace]"
+    echo ""
+    echo "Exemples :"
+    echo "  mise run agent:copilot -- \"Écris une fonction de tri\""
+    echo "  mise run agent:copilot -- \"Trouve et corrige les bugs\" /chemin/projet"
+    echo ""
+    echo "Profil : $PROFILE"
+    echo "Modèle : $MODEL"
+    echo "Prérequis : GITHUB_TOKEN dans l'environnement (avec scope copilot/models)"
+    echo ""
+    echo "Autres agents disponibles :"
+    echo "  mise run agent:coding -- \"...\"   Gemma 4 (local, gratuit)"
+    echo "  mise run agent:claude -- \"...\"   Claude Sonnet (en ligne)"
+    echo ""
+    echo "Évaluations : mise run agent:eval -- copilot"
+    exit 1
+fi
+
+# Vérifier le harness
+if [ ! -f "$HARNESS_DIR/.venv/bin/harness" ]; then
+    echo "[ERREUR] agent-harness non installé"
+    echo "Lancez : mise run agent:setup"
+    exit 1
+fi
+
+# Vérifier le token
+if [ -z "${GITHUB_TOKEN:-}" ]; then
+    echo "[ERREUR] GITHUB_TOKEN non défini"
+    echo "export GITHUB_TOKEN=ghp_..."
+    echo ""
+    echo "Le token doit avoir le scope 'copilot' ou 'models'."
+    echo "Créez-en un sur https://github.com/settings/tokens"
+    exit 1
+fi
+
+# Lancer le harness
+exec "$HARNESS_DIR/.venv/bin/harness" run \
+    --profile "$PROFILE" \
+    --workspace "$WORKSPACE" \
+    "$TASK"

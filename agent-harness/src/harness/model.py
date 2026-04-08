@@ -1,4 +1,8 @@
-"""Ollama model client.
+"""Model clients.
+
+Provides a Protocol that all model backends must implement, plus the
+Ollama backend (the original). Additional backends live in their own
+modules (e.g. ``anthropic_client``).
 
 Wraps the Ollama Python SDK with:
 - robust tool-call parsing (Gemma is less reliable than GPT-4 on tool calling)
@@ -11,11 +15,24 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 import ollama
 
 logger = logging.getLogger(__name__)
+
+
+@runtime_checkable
+class ModelClient(Protocol):
+    """Minimal contract every model backend must satisfy."""
+
+    model: str
+
+    def chat(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> ModelResponse: ...
 
 
 @dataclass

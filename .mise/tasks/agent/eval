@@ -2,20 +2,87 @@
 #MISE description="Lancer la suite d'évaluation du harness (7 tâches)"
 set -euo pipefail
 
-ROLE="${1:-coding}"
-HARNESS_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}/agent-harness"
+PROVIDER="${1:-}"
+REPO_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+HARNESS_DIR="$REPO_DIR/agent-harness"
 
-case "$ROLE" in
-    coding) PROFILE="$HARNESS_DIR/config/profiles/gemma4-coding.yaml" ;;
-    doc)    PROFILE="$HARNESS_DIR/config/profiles/gemma4-doc.yaml" ;;
+if [ -z "$PROVIDER" ]; then
+    echo "Usage: mise run agent:eval -- [gemma4|gemma4-light|claude|copilot]"
+    echo ""
+    echo "Providers :"
+    echo "  gemma4        Gemma 4 26B MoE Q8 (local, ~5 min)"
+    echo "  gemma4-light  Gemma 4 E4B 8B (local, ~10 min)"
+    echo "  claude        Claude Sonnet (en ligne, ~2 min)"
+    echo "  copilot       GitHub Copilot (en ligne, ~2 min)"
+    echo ""
+    echo "Autres commandes :"
+    echo "  mise run verify                    Vérification complète (sans eval)"
+    echo "  mise run verify -- gemma4          Vérification + eval"
+    echo "  mise run test:system               Tests système end-to-end"
+    exit 1
+fi
+
+case "$PROVIDER" in
+    gemma4)
+        PROFILE="$HARNESS_DIR/config/profiles/ci-gemma4.yaml"
+        MODEL="${GEMMA4_CODING_MODEL:-gemma4:26b-a4b-it-q8_0}"
+        NEEDS_OLLAMA=true
+        ;;
+    gemma4-light)
+        PROFILE="$HARNESS_DIR/config/profiles/ci.yaml"
+        MODEL="gemma4:e4b"
+        NEEDS_OLLAMA=true
+        ;;
+    claude)
+        PROFILE="$HARNESS_DIR/config/profiles/ci-claude.yaml"
+        NEEDS_OLLAMA=false
+        if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "[ERREUR] ANTHROPIC_API_KEY non définie"
+            echo "export ANTHROPIC_API_KEY=sk-ant-..."
+            echo ""
+            echo "Autres providers disponibles :"
+            echo "  mise run agent:eval -- gemma4    (local, pas de clé requise)"
+            echo "  mise run agent:eval -- copilot   (GITHUB_TOKEN requis)"
+            exit 1
+        fi
+        ;;
+    copilot)
+        PROFILE="$HARNESS_DIR/config/profiles/ci-copilot.yaml"
+        NEEDS_OLLAMA=false
+        if [ -z "${GITHUB_TOKEN:-}" ]; then
+            echo "[ERREUR] GITHUB_TOKEN non défini"
+            echo "export GITHUB_TOKEN=ghp_..."
+            echo ""
+            echo "Autres providers disponibles :"
+            echo "  mise run agent:eval -- gemma4    (local, pas de clé requise)"
+            echo "  mise run agent:eval -- claude    (ANTHROPIC_API_KEY requis)"
+            exit 1
+        fi
+        ;;
     *)
-        echo "Usage: mise run agent:eval -- [coding|doc]"
+        echo "[ERREUR] Provider inconnu : $PROVIDER"
+        echo ""
+        echo "Usage: mise run agent:eval -- [gemma4|gemma4-light|claude|copilot]"
         exit 1
         ;;
 esac
 
-echo "=== Évaluation agent-harness ($ROLE) ==="
+# Vérifier le harness
+if [ ! -f "$HARNESS_DIR/.venv/bin/harness" ]; then
+    echo "[ERREUR] agent-harness non installé"
+    echo "Lancez : mise run agent:setup"
+    exit 1
+fi
+
+# Prérequis Ollama + modèle (providers locaux uniquement)
+if [ "$NEEDS_OLLAMA" = true ]; then
+    source "$REPO_DIR/scripts/ensure-model.sh"
+    _ensure_model "$MODEL" || exit 1
+fi
+
+echo "=== Évaluation agent-harness ($PROVIDER) ==="
 echo "Profil : $PROFILE"
 echo ""
 
-exec "$HARNESS_DIR/.venv/bin/harness" eval --profile "$PROFILE"
+cd "$HARNESS_DIR"
+PYTHONPATH=. exec .venv/bin/harness eval --profile "$PROFILE"

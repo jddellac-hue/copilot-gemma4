@@ -1,0 +1,96 @@
+# =============================================================================
+# Profile: copilot
+# =============================================================================
+# Agent coding utilisant GitHub Copilot (Models API) comme cerveau.
+# Utilise l'endpoint OpenAI-compatible de GitHub Models.
+#
+# Prerequis : GITHUB_TOKEN dans l'environnement (avec scope copilot/models).
+# =============================================================================
+
+name: copilot
+profile_type: coding
+log_level: INFO
+
+model:
+  provider: openai
+  endpoint: https://models.inference.ai.azure.com
+  name: gpt-4o
+  api_key_env: GITHUB_TOKEN
+  temperature: 0.2
+  max_tokens: 4096
+
+agent:
+  max_steps: 30
+  token_budget: 200000
+  wall_clock_timeout_s: 300
+  repetition_threshold: 3
+
+memory:
+  soft_budget_tokens: 16000
+  long_term_path: ~/.local/share/agent-harness/notes-copilot.md
+
+sandbox:
+  backend: bubblewrap
+  allow_network: false
+  max_output_bytes: 32768
+  extra_ro_binds: []
+
+permissions:
+  default: ask
+  audit_log_path: ~/.local/share/agent-harness/audit-copilot.jsonl
+
+  rules:
+    # ---- Read-only: always safe ----
+    - tool: read_file
+      decision: allow
+    - tool: list_dir
+      decision: allow
+    - tool: search_files
+      decision: allow
+
+    # ---- Write: ask, deny sensitive paths ----
+    - tool: write_file
+      decision: ask
+      patterns_deny:
+        - "\\.ssh/"
+        - "\\.aws/"
+        - "\\.kube/"
+        - "\\.gnupg/"
+        - "/etc/"
+        - "/usr/"
+        - "id_rsa"
+        - "id_ed25519"
+
+    - tool: edit_file
+      decision: ask
+      patterns_deny:
+        - "\\.ssh/"
+        - "\\.aws/"
+        - "\\.kube/"
+        - "/etc/"
+
+    # ---- Bash: ask, deny dangerous patterns ----
+    - tool: bash
+      decision: ask
+      patterns_deny:
+        - "\\brm\\s+-rf?\\s+/"
+        - "\\brm\\s+-rf?\\s+\\*"
+        - "\\bmkfs\\b"
+        - "\\bsudo\\b"
+        - "\\bsu\\b"
+        - "\\|\\s*(sh|bash)\\b"
+        - "git\\s+push\\s+.*--force"
+        - "git\\s+reset\\s+--hard"
+        - "chmod\\s+-R\\s+777"
+      patterns_ask:
+        - "git\\s+push"
+        - "pip\\s+install"
+
+    # ---- Catch-all ----
+    - tool: "*"
+      decision: ask
+
+observability:
+  enabled: false
+  service_name: agent-harness-copilot
+  otlp_endpoint: null

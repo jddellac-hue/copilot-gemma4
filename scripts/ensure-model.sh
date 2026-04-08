@@ -18,13 +18,27 @@ _ensure_model() {
         echo "[OK] ollama démarré"
     fi
 
-    # 2. Modèle installé ?
+    # 2. Modèle installé ? Sinon proposer le téléchargement.
     if ! ollama list 2>/dev/null | grep -q "$MODEL"; then
-        echo "[ERREUR] $MODEL n'est pas installé"
+        echo "[!] $MODEL n'est pas installé"
         echo ""
-        echo "Installez-le avec :"
-        echo "  mise run model:install -- $MODEL"
-        return 1
+        read -rp "Voulez-vous le télécharger maintenant ? [O/n] " REPLY
+        REPLY="${REPLY:-O}"
+        if [[ "$REPLY" =~ ^[OoYy]$ ]]; then
+            echo "[...] Téléchargement de $MODEL (peut prendre plusieurs minutes)..."
+            ollama pull "$MODEL" || {
+                echo "[ERREUR] Échec du téléchargement de $MODEL"
+                return 1
+            }
+            echo "[OK] $MODEL téléchargé"
+        else
+            echo "[ERREUR] $MODEL est requis pour ce profil"
+            echo ""
+            echo "Installez-le manuellement :"
+            echo "  ollama pull $MODEL"
+            echo "  mise run model:install -- $MODEL"
+            return 1
+        fi
     fi
 
     # 3. Décharger les autres modèles

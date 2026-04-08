@@ -1,18 +1,20 @@
 # agent-harness
 
-> Local agentic harness around **Gemma** (Ollama) — coding & ops profiles,
-> MCP integration, sandboxed execution, observability-first.
+> Multi-provider agentic harness — coding & ops profiles, MCP integration,
+> sandboxed execution, observability-first.
 
 A **« skeleton not a brain »** : the harness handles orchestration,
 permissions, sandboxing, memory and tool routing. The brain is whichever
-Ollama model you point it at — Gemma by default, but interchangeable.
+model you point it at — supports **Ollama** (Gemma, local),
+**Anthropic** (Claude, en ligne) and **OpenAI-compatible** endpoints
+(GitHub Copilot, OpenAI, Azure, etc.).
 
 ## Why
 
 Most agentic CLIs are tied to a specific cloud model. This one is built
 explicitly to:
 
-- Run **fully offline** with a local model
+- Run **fully offline** with a local model, or online with Claude / Copilot
 - Be **auditable** end-to-end (every tool call is logged with its decision)
 - Be **safe by default** (sandboxed bash, three-state permissions, deny-list
   for sensitive paths)
@@ -36,8 +38,9 @@ explicitly to:
                     └─────────┬──────────┘
                               ▼
                     ┌────────────────────┐
-                    │  Ollama + Gemma    │
-                    │  (the brain)       │
+                    │  Model Provider    │
+                    │  Ollama / Claude / │
+                    │  Copilot / OpenAI  │
                     └────────────────────┘
 ```
 
@@ -53,15 +56,21 @@ explicitly to:
 # Install
 git clone <repo> && cd agent-harness
 python3.11 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[dev,anthropic,openai]"
 
-# Pull a model
-ollama pull gemma:7b-instruct
+# Option A: Local (Ollama + Gemma 4)
+ollama pull gemma4:e4b
+harness run --profile config/profiles/dev.yaml --workspace . \
+    "Find the largest file in this repo and tell me its size"
 
-# Run a task
-harness run \
-    --profile config/profiles/dev.yaml \
-    --workspace . \
+# Option B: Claude (en ligne)
+export ANTHROPIC_API_KEY=sk-ant-...
+harness run --profile config/profiles/claude-online.yaml --workspace . \
+    "Find the largest file in this repo and tell me its size"
+
+# Option C: GitHub Copilot (en ligne)
+export GITHUB_TOKEN=ghp_...
+harness run --profile config/profiles/copilot.yaml --workspace . \
     "Find the largest file in this repo and tell me its size"
 ```
 
@@ -92,7 +101,9 @@ agent-harness/
 ├── .vscode/mcp.json              # VS Code MCP config (mirror)
 ├── src/harness/
 │   ├── agent.py                  # ReAct loop
-│   ├── model.py                  # Ollama client
+│   ├── model.py                  # ModelClient protocol + Ollama client
+│   ├── anthropic_client.py       # Anthropic (Claude) client
+│   ├── openai_client.py          # OpenAI-compatible client (Copilot, etc.)
 │   ├── memory.py                 # Working & long-term memory
 │   ├── permissions.py            # Allow/ask/deny policy
 │   ├── sandbox.py                # bubblewrap / subprocess
@@ -107,6 +118,14 @@ agent-harness/
 ├── config/profiles/
 │   ├── dev.yaml                  # Dev profile (ask before mutations)
 │   ├── ci.yaml                   # CI profile (deterministic)
+│   ├── gemma4-coding.yaml        # Gemma 4 26B MoE (production coding)
+│   ├── gemma4-doc.yaml           # Gemma 4 26B MoE (documentation)
+│   ├── claude-online.yaml        # Claude Sonnet (en ligne)
+│   ├── copilot.yaml              # GitHub Copilot / Models API
+│   ├── ci-gemma4.yaml            # CI non-interactif, Gemma 4
+│   ├── ci-claude.yaml            # CI non-interactif, Claude
+│   ├── ci-copilot.yaml           # CI non-interactif, Copilot
+│   ├── ops.yaml                  # Full ops stack (Dynatrace+K8s+...)
 │   └── prod-ro.yaml              # Read-only ops profile
 ├── eval/
 │   ├── tasks/                    # 7 reproducible eval tasks

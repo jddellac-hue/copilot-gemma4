@@ -36,7 +36,7 @@ prompt: |
 success:
   type: bash
   command: |
-    python test_math.py 2>&1 | grep -q "PASS"
+    python3 test_math.py 2>&1 | grep -q "PASS"
 
 budget:
   max_steps: 15

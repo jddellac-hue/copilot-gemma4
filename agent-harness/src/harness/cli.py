@@ -20,7 +20,7 @@ from rich.prompt import Confirm
 
 from harness.agent import Agent, AgentConfig
 from harness.memory import Memory
-from harness.model import OllamaClient
+from harness.model import ModelClient, OllamaClient
 from harness.observability import ObservabilityConfig, setup_observability
 from harness.permissions import PermissionPolicy
 from harness.sandbox import Sandbox, SandboxConfig
@@ -69,12 +69,33 @@ def _build_agent(profile: dict[str, Any], workspace: Path) -> Agent:
     logging.basicConfig(level=profile.get("log_level", "INFO"))
 
     model_cfg = profile["model"]
-    model = OllamaClient(
-        model=model_cfg["name"],
-        endpoint=model_cfg.get("endpoint", "http://localhost:11434"),
-        temperature=model_cfg.get("temperature", 0.2),
-        num_ctx=model_cfg.get("num_ctx", 8192),
-    )
+    provider = model_cfg.get("provider", "ollama")
+    model: ModelClient
+    if provider == "anthropic":
+        from harness.anthropic_client import AnthropicClient
+
+        model = AnthropicClient(
+            model=model_cfg["name"],
+            temperature=model_cfg.get("temperature", 0.2),
+            max_tokens=model_cfg.get("max_tokens", 4096),
+        )
+    elif provider == "openai":
+        from harness.openai_client import OpenAIClient
+
+        model = OpenAIClient(
+            model=model_cfg["name"],
+            base_url=model_cfg.get("endpoint", "https://api.openai.com/v1"),
+            api_key_env=model_cfg.get("api_key_env", "OPENAI_API_KEY"),
+            temperature=model_cfg.get("temperature", 0.2),
+            max_tokens=model_cfg.get("max_tokens", 4096),
+        )
+    else:
+        model = OllamaClient(
+            model=model_cfg["name"],
+            endpoint=model_cfg.get("endpoint", "http://localhost:11434"),
+            temperature=model_cfg.get("temperature", 0.2),
+            num_ctx=model_cfg.get("num_ctx", 8192),
+        )
 
     sandbox_cfg = profile.get("sandbox", {})
     sandbox = Sandbox(
