@@ -97,7 +97,7 @@ def _init_rag():
         config = SkillsConfig(
             enabled=True,
             path=__import__("pathlib").Path(skills_dir),
-            collection_name="chat_skills",
+            collection_name="agent_skills",
             persist_dir=__import__("pathlib").Path(
                 os.path.expanduser("~/.local/share/agent-harness/chroma")
             ),

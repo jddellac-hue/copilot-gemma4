@@ -1,7 +1,7 @@
 """Domain skills RAG tool.
 
 Indexes a directory of domain skill documents into a local Chroma collection
-and exposes `search_skills(query, domain?)`.  Each subdirectory under the
+and exposes ``search_skills(query, domain?)``.  Each subdirectory under the
 skills path is a **domain** (e.g. angular, oracle, quarkus).  The agent
 calls this tool to retrieve detailed domain expertise on demand.
 
@@ -15,6 +15,8 @@ Design notes
   inside each skill directory.
 - Optional dependency: ``chromadb`` (``[rag]`` extra).  If not installed,
   ``build_skills_tools`` returns an empty list with a warning.
+- Lazy initialization: Chroma is loaded on first ``search_skills`` call,
+  not during tool construction.  This keeps MCP server startup fast.
 
 Directory layout expected::
 
@@ -51,6 +53,9 @@ from typing import Any
 from harness.tools.base import Tool, ToolResult, tool
 
 logger = logging.getLogger(__name__)
+
+# Stamp file name shared with bash scripts (harness-run.sh, skills:reindex).
+_STAMP_NAME = ".skills_indexed_at"
 
 
 @dataclass
@@ -113,10 +118,11 @@ def _discover_domains(skills_path: Path) -> list[str]:
 def _needs_reindex(config: SkillsConfig) -> bool:
     """Check whether skills files have changed since the last index.
 
-    Compares the mtime of a stamp file against the newest .md file under
-    the skills directory.  If the stamp is missing or older, returns True.
+    Uses the shared stamp file ``.skills_indexed_at`` (same as the bash
+    scripts) so that ``mise run skills:reindex`` and ``mise run chat``
+    share the same freshness signal.
     """
-    stamp = config.persist_dir / f".{config.collection_name}_indexed_at"
+    stamp = config.persist_dir / _STAMP_NAME
     if not stamp.exists():
         return True
     stamp_mtime = stamp.stat().st_mtime
@@ -125,7 +131,7 @@ def _needs_reindex(config: SkillsConfig) -> bool:
 
 def _touch_stamp(config: SkillsConfig) -> None:
     """Touch the stamp file to record the indexing time."""
-    stamp = config.persist_dir / f".{config.collection_name}_indexed_at"
+    stamp = config.persist_dir / _STAMP_NAME
     stamp.touch()
 
 
@@ -192,8 +198,9 @@ def _index_skills(collection: Any, config: SkillsConfig) -> tuple[int, list[str]
 def build_skills_tools(config: SkillsConfig) -> list[Tool]:
     """Build the domain skills RAG tool.
 
-    Returns [] if disabled, if chromadb is not installed, or if the
-    skills directory does not exist.
+    Returns [] if disabled, if the skills directory does not exist, or if
+    no domains are found.  Chroma is loaded lazily on first
+    ``search_skills`` call so that MCP server startup is not blocked.
     """
     if not config.enabled:
         return []
@@ -204,29 +211,50 @@ def build_skills_tools(config: SkillsConfig) -> list[Tool]:
         )
         return []
 
-    try:
-        import chromadb
-    except ImportError:
-        logger.warning(
-            "skills enabled but `chromadb` is not installed. "
-            "Install with: pip install agent-harness[rag]"
-        )
+    # Discover domains from the filesystem (no chromadb needed)
+    domains = _discover_domains(config.path)
+    if not domains:
+        logger.warning("no skill domains found under %s", config.path)
         return []
 
-    config.persist_dir.mkdir(parents=True, exist_ok=True)
-    client = chromadb.PersistentClient(path=str(config.persist_dir))
-    collection = client.get_or_create_collection(name=config.collection_name)
+    domain_list = ", ".join(domains)
 
-    n_indexed, domains = _index_skills(collection, config)
-    logger.info(
-        "skills: indexed %d chunks from %d domains (%s) into collection %s",
-        n_indexed,
-        len(domains),
-        ", ".join(domains),
-        config.collection_name,
-    )
+    # Lazy state — Chroma client + collection are created on first call
+    _lazy: dict[str, Any] = {}
 
-    domain_list = ", ".join(domains) if domains else "none"
+    def _ensure_collection() -> Any:
+        """Import chromadb, open the collection, and index if needed.
+
+        Called once on first search_skills invocation.  Subsequent calls
+        return the cached collection.
+        """
+        if "collection" in _lazy:
+            return _lazy["collection"]
+
+        try:
+            import chromadb
+        except ImportError:
+            logger.warning(
+                "skills enabled but `chromadb` is not installed. "
+                "Install with: pip install agent-harness[rag]"
+            )
+            _lazy["collection"] = None
+            return None
+
+        config.persist_dir.mkdir(parents=True, exist_ok=True)
+        client = chromadb.PersistentClient(path=str(config.persist_dir))
+        collection = client.get_or_create_collection(name=config.collection_name)
+
+        n_indexed, indexed_domains = _index_skills(collection, config)
+        logger.info(
+            "skills: %d chunks from %d domains (%s) in collection %s",
+            n_indexed,
+            len(indexed_domains),
+            ", ".join(indexed_domains),
+            config.collection_name,
+        )
+        _lazy["collection"] = collection
+        return collection
 
     @tool(
         name="search_skills",
@@ -266,6 +294,13 @@ def build_skills_tools(config: SkillsConfig) -> list[Tool]:
         side_effects={"read"},
     )
     def search_skills(args: dict[str, Any]) -> ToolResult:
+        collection = _ensure_collection()
+        if collection is None:
+            return ToolResult(
+                ok=False,
+                content="chromadb not installed — run: pip install agent-harness[rag]",
+            )
+
         top_k = min(int(args.get("top_k", 5)), config.max_results)
         where_filter: dict[str, str] | None = None
         domain = args.get("domain")
