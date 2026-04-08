@@ -45,6 +45,19 @@ sandbox:
   extra_ro_binds: []         # additional read-only bind mounts inside the sandbox
 
 # -----------------------------------------------------------------------------
+# Domain skills — RAG over skill documentation
+# -----------------------------------------------------------------------------
+ops_tools:
+  skills:
+    enabled: true
+    path: ~/pseudo-copilot/skills
+    collection_name: agent_skills
+    persist_dir: ~/.local/share/agent-harness/chroma
+    chunk_size: 800
+    chunk_overlap: 100
+    max_results: 5
+
+# -----------------------------------------------------------------------------
 # Permissions matrix
 # -----------------------------------------------------------------------------
 # Decision algorithm:
@@ -116,6 +129,10 @@ permissions:
         - "npm\\s+publish"
         - "pip\\s+install"
         - "mvn\\s+deploy"
+
+    # ---- Skills: read-only RAG search ----
+    - tool: search_skills
+      decision: allow
 
     # ---- MCP tools: catch-all for tools loaded from external MCP servers ----
     - tool: "*"

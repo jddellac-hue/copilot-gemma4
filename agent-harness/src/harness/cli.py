@@ -31,6 +31,7 @@ from harness.tools.dynatrace import DynatraceConfig, build_dynatrace_tools
 from harness.tools.filesystem import build_filesystem_tools
 from harness.tools.kubernetes import KubernetesConfig, build_kubernetes_tools
 from harness.tools.runbooks import RunbooksConfig, build_runbooks_tools
+from harness.tools.skills import SkillsConfig, build_skills_tools
 
 app = typer.Typer(help="Local agent harness around Gemma (Ollama).")
 console = Console()
@@ -47,6 +48,9 @@ sandbox. Work step by step:
 5. If you are unsure, ask the user.
 
 When invoking a tool, choose the most specific one available.
+If a search_skills tool is available, use it to retrieve domain expertise
+(Angular, Quarkus, Oracle, Concourse, Dynatrace, DevOps, testing, etc.)
+before making technology-specific decisions.
 """
 
 SYSTEM_PROMPT_OPS = """You are an operations assistant. By default you
@@ -55,6 +59,9 @@ production state without explicit confirmation. Always cite the source
 (file, log line, metric query) for any factual claim. Prefer DQL queries
 over guesswork. When asked to take a mutating action, restate the action
 and its blast radius before proposing to execute it.
+If a search_skills tool is available, use it to retrieve domain expertise
+(Dynatrace DQL, Kubernetes, Oracle, Concourse pipelines, etc.) before
+making technology-specific decisions.
 """
 
 
@@ -135,6 +142,12 @@ def _build_agent(profile: dict[str, Any], workspace: Path) -> Agent:
         tools.register_many(
             build_concourse_tools(
                 ConcourseConfig.from_dict(ops_tools_cfg["concourse"])
+            )
+        )
+    if ops_tools_cfg.get("skills", {}).get("enabled"):
+        tools.register_many(
+            build_skills_tools(
+                SkillsConfig.from_dict(ops_tools_cfg["skills"])
             )
         )
 

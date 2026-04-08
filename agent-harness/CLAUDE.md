@@ -57,6 +57,7 @@ src/harness/
     ├── dynatrace.py      # dynatrace_dql, problems, entity_search
     ├── kubernetes.py     # kubectl_get/describe/logs (LOCKED context)
     ├── runbooks.py       # Chroma RAG over markdown runbooks
+    ├── skills.py         # Chroma RAG over domain skill docs
     └── concourse.py      # concourse_pipelines/builds/build_logs
 
 config/profiles/          # dev, ci, gemma4-*, claude-*, copilot, ops, prod-ro

@@ -93,6 +93,16 @@ ops_tools:
     glob: "**/*.md"
     max_results: 5
 
+  # ---- Domain skills (RAG over skill documentation) ----------------------
+  skills:
+    enabled: true
+    path: ~/pseudo-copilot/skills
+    collection_name: agent_skills
+    persist_dir: ~/.local/share/agent-harness/chroma
+    chunk_size: 800
+    chunk_overlap: 100
+    max_results: 5
+
   # ---- Concourse CI ------------------------------------------------------
   concourse:
     enabled: true
@@ -170,6 +180,8 @@ permissions:
     - tool: concourse_builds
       decision: allow
     - tool: concourse_build_logs
+      decision: allow
+    - tool: search_skills
       decision: allow
 
     # Catch-all

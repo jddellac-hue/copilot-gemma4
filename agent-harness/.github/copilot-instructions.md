@@ -93,9 +93,9 @@ path**: it is the most stable and most portable.
 - Do not suggest committing secrets, API keys, or `.env` files.
 - Do not suggest pulling unverified MCP servers or npm/pip packages.
 
-## Ops tools (Dynatrace / Kubernetes / Runbooks / Concourse)
+## Ops tools (Dynatrace / Kubernetes / Runbooks / Skills / Concourse)
 
-The harness ships with four optional ops integrations under
+The harness ships with five optional ops integrations under
 `src/harness/tools/`:
 
 - `dynatrace.py` — `dynatrace_dql`, `dynatrace_problems`,
@@ -107,6 +107,10 @@ The harness ships with four optional ops integrations under
   mutating verbs**.
 - `runbooks.py` — `search_runbooks` (RAG over a markdown directory via
   Chroma). Optional dep; install with `pip install agent-harness[rag]`.
+- `skills.py` — `search_skills` (RAG over domain skill documentation via
+  Chroma). Indexes a skills directory where each subdirectory is a domain
+  (angular, oracle, quarkus, etc.). Supports optional `domain` filter.
+  Optional dep; install with `pip install agent-harness[rag]`.
 - `concourse.py` — `concourse_pipelines`, `concourse_builds`,
   `concourse_build_logs`. Read-only via the Concourse v1 API.
 
