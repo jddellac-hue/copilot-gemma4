@@ -13,7 +13,7 @@ A **multi-provider agentic harness** supporting Ollama (Gemma, local),
 Anthropic (Claude, en ligne) and OpenAI-compatible endpoints (GitHub
 Copilot, OpenAI, Azure). It provides: a ReAct agent loop, a tool registry
 (filesystem, sandboxed bash, Dynatrace, Kubernetes, runbook RAG,
-Concourse), a three-state permission policy (allow/ask/deny), a bubblewrap
+Concourse, SonarQube, RabbitMQ), a three-state permission policy (allow/ask/deny), a bubblewrap
 sandbox (with automatic subprocess fallback), OpenTelemetry observability,
 and an MCP server that re-exposes the tool surface to other clients.
 
@@ -58,9 +58,11 @@ src/harness/
     ├── kubernetes.py     # kubectl_get/describe/logs (LOCKED context)
     ├── runbooks.py       # Chroma RAG over markdown runbooks
     ├── skills.py         # Chroma RAG over domain skill docs
-    └── concourse.py      # concourse_pipelines/builds/build_logs
+    ├── concourse.py      # concourse_pipelines/builds/build_logs
+    ├── sonarqube.py      # sonarqube_quality_gate/issues
+    └── rabbitmq.py       # rabbitmq_overview
 
-config/profiles/          # 11 profiles: dev, ci(4), gemma4(2), claude, copilot, ops, prod-ro
+config/profiles/          # 11 profiles: dev, ci(4), gemma4(2), claude, copilot, ops(+sonar+rmq), prod-ro
 eval/tasks/               # 7 reproducible eval tasks (YAML)
 tests/unit/               # Permissions, sandbox, tools, k8s, runbooks, SSE
 tests/integration/        # Agent loop with mocked model
@@ -77,7 +79,7 @@ python3 -m venv --without-pip .venv
 curl -sS https://bootstrap.pypa.io/get-pip.py | .venv/bin/python3
 .venv/bin/pip install -e ".[dev,anthropic,openai]"
 
-# Run unit tests — should report "73 passed"
+# Run unit tests — should report "90 passed"
 pytest tests/ -q
 
 # Lint + type check (required before committing)

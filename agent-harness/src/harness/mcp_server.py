@@ -23,7 +23,8 @@ from typing import Any
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import TextContent, Tool as MCPTool
+from mcp.types import TextContent
+from mcp.types import Tool as MCPTool
 
 from harness.permissions import PermissionPolicy
 from harness.sandbox import Sandbox, SandboxConfig
@@ -33,7 +34,9 @@ from harness.tools.concourse import ConcourseConfig, build_concourse_tools
 from harness.tools.dynatrace import DynatraceConfig, build_dynatrace_tools
 from harness.tools.filesystem import build_filesystem_tools
 from harness.tools.kubernetes import KubernetesConfig, build_kubernetes_tools
+from harness.tools.rabbitmq import RabbitMQConfig, build_rabbitmq_tools
 from harness.tools.runbooks import RunbooksConfig, build_runbooks_tools
+from harness.tools.sonarqube import SonarQubeConfig, build_sonarqube_tools
 
 # Filesystem and bash tools are redundant in MCP mode: the consuming client
 # (Claude Code, Copilot, Cline…) already has its own, with its own sandbox.
@@ -84,6 +87,18 @@ def _build_registry(profile: dict[str, Any], workspace: Path) -> tuple[
         registry.register_many(
             build_concourse_tools(
                 ConcourseConfig.from_dict(ops_tools_cfg["concourse"])
+            )
+        )
+    if ops_tools_cfg.get("sonarqube", {}).get("enabled"):
+        registry.register_many(
+            build_sonarqube_tools(
+                SonarQubeConfig.from_dict(ops_tools_cfg["sonarqube"])
+            )
+        )
+    if ops_tools_cfg.get("rabbitmq", {}).get("enabled"):
+        registry.register_many(
+            build_rabbitmq_tools(
+                RabbitMQConfig.from_dict(ops_tools_cfg["rabbitmq"])
             )
         )
 

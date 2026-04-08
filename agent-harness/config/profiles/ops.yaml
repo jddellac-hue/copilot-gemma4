@@ -13,6 +13,9 @@
 # Tokens are loaded from environment variables, never stored in the file.
 # Required env vars when fully enabled:
 #   DT_API_TOKEN          — Dynatrace API token (read scope sufficient)
+#   SONAR_TOKEN           — SonarQube token (Browse permission)
+#   RABBITMQ_USER         — RabbitMQ management user
+#   RABBITMQ_PASSWORD     — RabbitMQ management password
 #   CONCOURSE_TOKEN       — Concourse bearer token
 # =============================================================================
 
@@ -103,6 +106,24 @@ ops_tools:
     chunk_overlap: 100
     max_results: 5
 
+  # ---- SonarQube ----------------------------------------------------------
+  sonarqube:
+    enabled: true
+    base_url: https://CHANGE-ME-sonar.example.com
+    token_env: SONAR_TOKEN
+    timeout_s: 30
+    max_issues: 50
+
+  # ---- RabbitMQ ----------------------------------------------------------
+  rabbitmq:
+    enabled: true
+    base_url: http://CHANGE-ME-rabbitmq.example.com:15672
+    user_env: RABBITMQ_USER
+    password_env: RABBITMQ_PASSWORD
+    vhost: /
+    timeout_s: 30
+    max_queues: 100
+
   # ---- Concourse CI ------------------------------------------------------
   concourse:
     enabled: true
@@ -188,6 +209,14 @@ permissions:
     - tool: concourse_build_logs
       decision: allow
     - tool: search_skills
+      decision: allow
+    - tool: sonarqube_quality_gate
+      decision: allow
+    - tool: sonarqube_issues
+      decision: allow
+    - tool: rabbitmq_overview
+      decision: allow
+    - tool: sre_slo_status
       decision: allow
 
     # Catch-all

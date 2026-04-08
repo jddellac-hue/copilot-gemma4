@@ -30,12 +30,41 @@ from harness.tools.concourse import ConcourseConfig, build_concourse_tools
 from harness.tools.dynatrace import DynatraceConfig, build_dynatrace_tools
 from harness.tools.filesystem import build_filesystem_tools
 from harness.tools.kubernetes import KubernetesConfig, build_kubernetes_tools
+from harness.tools.rabbitmq import RabbitMQConfig, build_rabbitmq_tools
 from harness.tools.runbooks import RunbooksConfig, build_runbooks_tools
 from harness.tools.skills import SkillsConfig, build_skills_tools
+from harness.tools.sonarqube import SonarQubeConfig, build_sonarqube_tools
 
 app = typer.Typer(help="Local agent harness around Gemma (Ollama).")
 console = Console()
 
+
+DEVOPS_PRACTICES = """
+## DevOps practices — mandatory at every iteration
+
+Follow the local pipeline before every push, no exceptions:
+1. Code       — implement the change
+2. Lint       — 0 errors (ruff / eslint / tsc)
+3. Unit tests — maintain existing + add tests for new code (fix → regression test)
+4. Integ/E2E  — if applicable
+5. Docs       — update ALL impacted files (README, SKILL.md, CLAUDE.md, CHANGELOG)
+6. Commit     — conventional commit message (<type>(<scope>): <description>)
+7. Push       — only when pipeline is green
+
+Imperative rules:
+- Never push without all tests passing.
+- Never push with lint errors.
+- Always maintain AND increase tests — each feat/fix adds tests, never regress.
+- Always update docs at each iteration.
+- One commit = one logical change.
+- Never commit secrets (.env, tokens, credentials).
+- Never hand back control mid-pipeline — finish all steps.
+- Always propose next steps at each milestone.
+- Never defer a problem — fix flaky tests, warnings, fragilities immediately.
+
+Commit types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert.
+Breaking changes: add ! after type, add BREAKING CHANGE footer.
+"""
 
 SYSTEM_PROMPT_CODING = """You are a coding agent operating in a developer's
 workspace. You have access to filesystem and bash tools that run inside a
@@ -54,7 +83,7 @@ before making technology-specific decisions.
 NEVER read files in the skills/ directory directly. Use search_skills
 for domain knowledge. If search_skills is not available, do not attempt
 to access skills/ content by any other means.
-"""
+""" + DEVOPS_PRACTICES
 
 SYSTEM_PROMPT_OPS = """You are an operations assistant. By default you
 operate in READ-ONLY mode: you observe and diagnose, you do not mutate
@@ -68,7 +97,7 @@ making technology-specific decisions.
 NEVER read files in the skills/ directory directly. Use search_skills
 for domain knowledge. If search_skills is not available, do not attempt
 to access skills/ content by any other means.
-"""
+""" + DEVOPS_PRACTICES
 
 
 def _load_profile(profile_path: Path) -> dict[str, Any]:
@@ -157,6 +186,18 @@ def _build_agent(profile: dict[str, Any], workspace: Path) -> Agent:
         tools.register_many(
             build_skills_tools(
                 SkillsConfig.from_dict(ops_tools_cfg["skills"], base_dir=_repo_root)
+            )
+        )
+    if ops_tools_cfg.get("sonarqube", {}).get("enabled"):
+        tools.register_many(
+            build_sonarqube_tools(
+                SonarQubeConfig.from_dict(ops_tools_cfg["sonarqube"])
+            )
+        )
+    if ops_tools_cfg.get("rabbitmq", {}).get("enabled"):
+        tools.register_many(
+            build_rabbitmq_tools(
+                RabbitMQConfig.from_dict(ops_tools_cfg["rabbitmq"])
             )
         )
 

@@ -1,10 +1,11 @@
 """Dynatrace tools.
 
-Three read-only tools wired on the Dynatrace API:
+Four read-only tools wired on the Dynatrace API:
 
 - `dynatrace_dql`            — execute a DQL query on Grail
 - `dynatrace_problems`       — list currently open or recent problems
 - `dynatrace_entity_search`  — search monitored entities by selector
+- `sre_slo_status`           — list SLOs with error budget and compliance
 
 All tools are classified as `safe` with side effects `{network, read}`.
 They are intended for the `ops` / `prod-ro` profiles.
@@ -42,7 +43,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -61,6 +62,7 @@ class DynatraceConfig:
     dql_poll_endpoint: str = "/platform/storage/query/v1/query:poll"
     problems_endpoint: str = "/api/v2/problems"
     entities_endpoint: str = "/api/v2/entities"
+    slo_endpoint: str = "/api/v2/slo"
     default_time_range: str = "now-1h"
     timeout_s: int = 30
     max_rows: int = 1000
@@ -88,6 +90,7 @@ class DynatraceConfig:
             ),
             problems_endpoint=data.get("problems_endpoint", "/api/v2/problems"),
             entities_endpoint=data.get("entities_endpoint", "/api/v2/entities"),
+            slo_endpoint=data.get("slo_endpoint", "/api/v2/slo"),
             default_time_range=data.get("default_time_range", "now-1h"),
             timeout_s=int(data.get("timeout_s", 30)),
             max_rows=int(data.get("max_rows", 1000)),
@@ -372,4 +375,96 @@ def build_dynatrace_tools(config: DynatraceConfig) -> list[Tool]:
             metadata={"entity_count": len(entities)},
         )
 
-    return [dynatrace_dql, dynatrace_problems, dynatrace_entity_search]
+    @tool(
+        name="sre_slo_status",
+        description=(
+            "List all SLOs (Service Level Objectives) from Dynatrace with "
+            "their current compliance status, error budget remaining, and "
+            "burn rate. Use this to check SRE health: which SLOs are at risk, "
+            "which have exhausted their error budget, and overall service "
+            "reliability posture. Returns name, target, evaluated percentage, "
+            "status, and error budget for each SLO."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "time_range": {
+                    "type": "string",
+                    "description": (
+                        "Time frame for SLO evaluation: 'now-1h', 'now-24h', "
+                        "'now-7d', 'now-30d' (default: now-24h)"
+                    ),
+                },
+                "name_filter": {
+                    "type": "string",
+                    "description": (
+                        "Optional substring filter on SLO names (case-insensitive)"
+                    ),
+                },
+                "status_filter": {
+                    "type": "string",
+                    "enum": ["WARNING", "FAILURE", "SUCCESS", "ALL"],
+                    "description": "Filter by SLO status (default: ALL)",
+                },
+            },
+        },
+        risk="safe",
+        side_effects={"network", "read"},
+    )
+    def sre_slo_status(args: dict) -> ToolResult:
+        time_range = args.get("time_range", "now-24h")
+        name_filter = args.get("name_filter", "").lower()
+        status_filter = args.get("status_filter", "ALL")
+
+        params = {
+            "pageSize": 200,
+            "from": time_range,
+            "to": "now",
+            "evaluate": "true",
+        }
+        try:
+            resp = client.get(config.slo_endpoint, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+        except httpx.HTTPError as exc:
+            return ToolResult(
+                ok=False, content=f"dynatrace SLO request failed: {exc}"
+            )
+
+        slos = data.get("slo", [])
+        if not slos:
+            return ToolResult(ok=True, content="[no SLOs configured]")
+
+        # Apply filters
+        if name_filter:
+            slos = [s for s in slos if name_filter in s.get("name", "").lower()]
+        if status_filter != "ALL":
+            slos = [s for s in slos if s.get("status") == status_filter]
+
+        if not slos:
+            return ToolResult(ok=True, content="[no SLOs match filters]")
+
+        lines = [
+            f"SLOs ({len(slos)}) — evaluated over {time_range}",
+            "",
+            "name\tstatus\ttarget\tevaluated\terror_budget",
+        ]
+        for s in slos:
+            evaluated = s.get("evaluatedPercentage", 0)
+            target = s.get("target", 0)
+            error_budget = s.get("errorBudget", 0)
+            lines.append(
+                f"{s.get('name', '?')}\t"
+                f"{s.get('status', '?')}\t"
+                f"{target:.2f}%\t"
+                f"{evaluated:.2f}%\t"
+                f"{error_budget:.2f}%"
+            )
+
+        return ToolResult(
+            ok=True,
+            content="\n".join(lines),
+            metadata={"slo_count": len(slos), "time_range": time_range},
+        )
+
+    return [dynatrace_dql, dynatrace_problems, dynatrace_entity_search, sre_slo_status]
