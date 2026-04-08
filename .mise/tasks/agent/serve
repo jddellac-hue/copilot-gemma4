@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+#MISE description="Démarrer le serveur OpenAI-compatible (pour IntelliJ, Continue.dev, etc.)"
+set -euo pipefail
+
+PROFILE="${1:-coding}"
+WORKSPACE="${2:-.}"
+HOST="${3:-127.0.0.1}"
+PORT="${4:-11500}"
+REPO_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+HARNESS_DIR="$REPO_DIR/agent-harness"
+
+case "$PROFILE" in
+    coding)  PROFILE_PATH="$HARNESS_DIR/config/profiles/gemma4-coding.yaml" ;;
+    doc)     PROFILE_PATH="$HARNESS_DIR/config/profiles/gemma4-doc.yaml" ;;
+    dev)     PROFILE_PATH="$HARNESS_DIR/config/profiles/dev.yaml" ;;
+    claude)  PROFILE_PATH="$HARNESS_DIR/config/profiles/claude-online.yaml" ;;
+    copilot) PROFILE_PATH="$HARNESS_DIR/config/profiles/copilot.yaml" ;;
+    *)
+        echo "Usage: mise run agent:serve -- [coding|doc|dev|claude|copilot] [workspace] [host] [port]"
+        echo ""
+        echo "Démarre un serveur OpenAI-compatible sur http://HOST:PORT/v1"
+        echo "Chaque requête déclenche une session agent complète (modèle + outils)."
+        echo ""
+        echo "Profils :"
+        echo "  coding   Gemma 4 26B MoE (local)        [défaut]"
+        echo "  doc      Gemma 4 26B MoE, doc (local)"
+        echo "  dev      Gemma 7B (local, léger)"
+        echo "  claude   Claude Sonnet (en ligne)"
+        echo "  copilot  GitHub Copilot (en ligne)"
+        echo ""
+        echo "Pour IntelliJ AI Assistant :"
+        echo "  1. mise run agent:serve"
+        echo "  2. Settings > Tools > AI Assistant > Custom LLM"
+        echo "     URL : http://127.0.0.1:11500/v1"
+        echo "     Clé : any-key-works"
+        echo ""
+        echo "Autres commandes :"
+        echo "  mise run agent:mcp              Serveur MCP (pour Copilot Chat)"
+        echo "  mise run agent:coding -- \"...\"  Agent direct (terminal)"
+        exit 1
+        ;;
+esac
+
+# Vérifier le harness
+if [ ! -f "$HARNESS_DIR/.venv/bin/harness" ]; then
+    echo "[ERREUR] agent-harness non installé"
+    echo "  → mise run agent:setup"
+    exit 1
+fi
+
+# Prérequis modèle (si Ollama)
+PROVIDER=$(grep -E "^\s+provider:" "$PROFILE_PATH" 2>/dev/null | awk '{print $2}' | head -1)
+if [ "${PROVIDER:-ollama}" = "ollama" ]; then
+    MODEL=$(grep -E "^\s+name:" "$PROFILE_PATH" 2>/dev/null | awk '{print $2}' | head -1)
+    source "$REPO_DIR/scripts/ensure-model.sh"
+    _ensure_model "$MODEL" || exit 1
+fi
+
+exec "$HARNESS_DIR/.venv/bin/harness" openai-serve \
+    --profile "$PROFILE_PATH" \
+    --workspace "$WORKSPACE" \
+    --host "$HOST" \
+    --port "$PORT"

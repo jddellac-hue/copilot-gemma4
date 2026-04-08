@@ -238,12 +238,13 @@ def openai_serve(
     Useful for clients that can swap the OpenAI base URL but cannot speak
     MCP. The endpoint wraps the full agent loop, not just the model — so
     each request is a full agentic session with tool use.
+
+    Works with: JetBrains AI Assistant, Continue.dev, Open WebUI, etc.
     """
-    typer.echo(
-        "openai-serve is a stub. Implement with FastAPI or starlette wrapping "
-        "_build_agent(...).run(...). Left as scaffolding intentionally — see "
-        "docs/README-operator.md for the rationale."
-    )
+    from harness.openai_server import run_server
+
+    profile_data = _load_profile(profile)
+    run_server(profile_data, workspace, host, port)
 
 
 @app.command("eval")
