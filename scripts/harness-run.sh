@@ -43,6 +43,67 @@ _check_chromadb() {
     fi
 }
 
+_ensure_skills_index() {
+    local SKILLS_DIR="$REPO_DIR/skills"
+    local PERSIST_DIR="$HOME/.local/share/agent-harness/chroma"
+    local STAMP_FILE="$PERSIST_DIR/.skills_indexed_at"
+    local VENV_PYTHON="$HARNESS_DIR/.venv/bin/python3"
+
+    # Pas de dossier skills → rien à indexer
+    [ -d "$SKILLS_DIR" ] || return 0
+
+    # Chroma DB absente ou cassée ?
+    local needs_reindex=false
+    if [ ! -f "$PERSIST_DIR/chroma.sqlite3" ]; then
+        echo "    [i] Base vectorielle Chroma absente — indexation requise"
+        needs_reindex=true
+    elif [ ! -f "$STAMP_FILE" ]; then
+        echo "    [i] Première indexation des skills"
+        needs_reindex=true
+    else
+        # Vérifier si un fichier .md dans skills/ est plus récent que le stamp
+        local newer
+        newer=$(find "$SKILLS_DIR" -name "*.md" -newer "$STAMP_FILE" -type f 2>/dev/null | head -1)
+        if [ -n "$newer" ]; then
+            echo "    [i] Skills modifiés depuis le dernier index ($(basename "$newer")...)"
+            needs_reindex=true
+        fi
+    fi
+
+    if [ "$needs_reindex" = true ]; then
+        echo "    [i] Reindexation automatique des skills..."
+        PYTHONUNBUFFERED=1 "$VENV_PYTHON" -c "
+import sys, os
+from pathlib import Path
+sys.path.insert(0, '$HARNESS_DIR/src')
+from harness.tools.skills import SkillsConfig, build_skills_tools
+
+config = SkillsConfig(
+    enabled=True,
+    path=Path('$SKILLS_DIR'),
+    collection_name='agent_skills',
+    persist_dir=Path('$PERSIST_DIR'),
+    chunk_size=800, chunk_overlap=100, max_results=5,
+)
+tools = build_skills_tools(config)
+if tools:
+    import chromadb
+    client = chromadb.PersistentClient(path='$PERSIST_DIR')
+    count = client.get_collection('agent_skills').count()
+    print(f'    [OK] {count} chunks indexés')
+else:
+    print('    [!] Indexation échouée')
+    sys.exit(1)
+" || {
+            echo "    [!] Reindexation échouée — l'agent fonctionnera sans skills RAG"
+            return 0
+        }
+        # Mettre à jour le timestamp
+        mkdir -p "$PERSIST_DIR"
+        touch "$STAMP_FILE"
+    fi
+}
+
 _check_env() {
     local profile_name="$1"
     case "$profile_name" in
@@ -91,6 +152,7 @@ harness_run() {
 
     _check_harness
     _check_chromadb
+    _ensure_skills_index
     _check_env "$profile_name"
     _ensure_local_model "$profile_path"
 

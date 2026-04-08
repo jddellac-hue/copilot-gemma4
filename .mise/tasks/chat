@@ -22,11 +22,24 @@ esac
 source "$REPO_DIR/scripts/ensure-model.sh"
 _ensure_model "$MODEL" || exit 1
 
-# Utiliser le python du venv harness (chromadb y est installé pour le RAG)
-VENV_PYTHON="$REPO_DIR/agent-harness/.venv/bin/python3"
-if [ -f "$VENV_PYTHON" ]; then
-    exec "$VENV_PYTHON" "$REPO_DIR/scripts/chat.py" "$ROLE"
-else
-    echo "[!] venv harness absent — chat sans RAG (mise run agent:setup pour installer)"
-    exec python3 "$REPO_DIR/scripts/chat.py" "$ROLE"
+# Vérifier les prérequis harness + skills RAG
+HARNESS_DIR="$REPO_DIR/agent-harness"
+VENV_PYTHON="$HARNESS_DIR/.venv/bin/python3"
+
+if [ ! -f "$VENV_PYTHON" ]; then
+    echo "[ERREUR] agent-harness non installé"
+    echo "  → mise run agent:setup"
+    exit 1
 fi
+
+if ! "$VENV_PYTHON" -c "import chromadb" 2>/dev/null; then
+    echo "[ERREUR] chromadb non installé (requis pour les skills RAG)"
+    echo "  → mise run agent:setup -- --force"
+    exit 1
+fi
+
+# Reindexer les skills si nécessaire (modifiés ou Chroma absent)
+source "$REPO_DIR/scripts/harness-run.sh"
+_ensure_skills_index
+
+exec "$VENV_PYTHON" "$REPO_DIR/scripts/chat.py" "$ROLE"

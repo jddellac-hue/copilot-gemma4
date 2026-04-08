@@ -166,6 +166,9 @@ if failed:
     print(f'[ECHEC] {passed} passés, {failed} échoués ({elapsed_rag:.1f}s)')
     sys.exit(1)
 print(f'[OK] {passed}/{passed} domaines vérifiés ({elapsed_rag:.1f}s)')
+
+# Mettre à jour le stamp pour _ensure_skills_index
+Path('$PERSIST_DIR/.skills_indexed_at').touch()
 " || exit 1
 
 echo ""
