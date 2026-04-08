@@ -1,4 +1,7 @@
 [env]
+# Bypass proxy corporate pour les connexions locales (Ollama)
+no_proxy = "localhost,127.0.0.1"
+NO_PROXY = "localhost,127.0.0.1"
 # Modèles disponibles
 GEMMA4_MODELS = "26b e4b 31b"
 # Tags ollama correspondants
