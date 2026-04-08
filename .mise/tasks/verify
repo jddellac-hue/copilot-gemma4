@@ -47,6 +47,7 @@ if command -v mise &>/dev/null; then
     ok "mise $(mise --version 2>&1 | head -1)"
 else
     fail "mise non trouvé dans le PATH"
+    echo -e "      ${YELLOW}→ curl https://mise.run | sh${NC}"
 fi
 
 # python3
@@ -54,6 +55,7 @@ if command -v python3 &>/dev/null; then
     ok "python3 $(python3 --version 2>&1)"
 else
     fail "python3 non trouvé"
+    echo -e "      ${YELLOW}→ sudo apt install python3${NC}"
 fi
 
 # ollama
@@ -80,6 +82,7 @@ if command -v git &>/dev/null; then
     ok "git $(git --version 2>&1)"
 else
     warn "git non trouvé"
+    echo -e "      ${YELLOW}→ sudo apt install git${NC}"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -114,7 +117,7 @@ else:
     OLLAMA_OK=true
 else
     fail "Ollama ne répond pas sur localhost:11434"
-    info "Démarrez avec : ollama serve"
+    echo -e "      ${YELLOW}→ ollama serve${NC}"
     OLLAMA_OK=false
 fi
 
@@ -144,7 +147,7 @@ if [ "$OLLAMA_OK" = true ]; then
             ok "$model ($SIZE)"
         else
             fail "$model non installé (requis)"
-            info "Installer avec : ollama pull $model"
+            echo -e "      ${YELLOW}→ ollama pull $model${NC}"
         fi
     done
 
@@ -154,7 +157,7 @@ if [ "$OLLAMA_OK" = true ]; then
             ok "$model ($SIZE) [recommandé]"
         else
             warn "$model non installé (recommandé pour les profils dev/ci/ops)"
-            info "Installer avec : ollama pull $model"
+            echo -e "      ${YELLOW}→ ollama pull $model${NC}"
         fi
     done
 
@@ -202,7 +205,7 @@ if [ -f "$HARNESS_DIR/.venv/bin/harness" ]; then
     HARNESS_OK=true
 else
     fail "agent-harness non installé"
-    info "Installer avec : mise run agent:setup"
+    echo -e "      ${YELLOW}→ mise run agent:setup${NC}"
     HARNESS_OK=false
 fi
 
