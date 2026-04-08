@@ -282,6 +282,70 @@ do it from inside an agent session.
 
 See `docs/README-operator.md` § 6 for the full activation procedure.
 
+## Domain skills (RAG)
+
+L'agent dispose d'un outil `search_skills` qui lui donne accès à une
+base de connaissances métier sur 10 domaines techniques. Cet outil
+utilise un RAG local (Chroma + embeddings CPU) pour retrouver les
+extraits pertinents par recherche sémantique.
+
+### Domaines disponibles
+
+| Domaine | Contenu |
+|---------|---------|
+| `angular` | Angular 15, Jest, Cypress, Apache, Kustomize |
+| `base` | Oracle 19c Docker, Flyway, schemas, migrations |
+| `concourse` | Concourse 7.14.3, Kind K8s, 3 pipelines |
+| `devops` | Cycle DevOps, conventional commits, testing pyramid, CI/CD |
+| `dynatrace` | DQL, Grail, entités, relations, app development |
+| `kubernetes` | Diagnostic pods, probes, Kustomize, Helm, RBAC, NetworkPolicy |
+| `oracle` | CDB/PDB, ARCHIVELOG, GoldenGate, DataGuard, tablespace monitoring |
+| `quarkus` | Quarkus 2.16/3.x, Kafka, JPA, Dev Services, dual datasources |
+| `template` | Cookiecutter Streamlit, uv, K8s/Kustomize 4 overlays |
+| `test` | Docker Compose 7 services, Behave, Playwright, E2E |
+
+### Comment ça marche
+
+```
+DÉMARRAGE (une fois par session agent)
+  1. Chroma ouvre la collection "agent_skills"
+     persistée dans ~/.local/share/agent-harness/chroma/
+  2. Parcourt copilot-gemma4/skills/**/*.md
+  3. Découpe chaque fichier en chunks de ~800 chars (par sections ##)
+  4. Upsert dans Chroma (idempotent : même hash SHA256 = skip)
+  → ~994 chunks indexés, quasi-instantané après le premier run
+
+RUNTIME (à chaque appel search_skills)
+  1. Le modèle appelle search_skills(query="...", domain="quarkus")
+  2. Chroma fait une recherche vectorielle (embedding similarity)
+     directement dans son index — PAS de relecture des fichiers .md
+  3. Retourne les top-5 chunks avec score, fichier source, section, domaine
+  4. Le modèle utilise ces extraits pour formuler sa réponse
+```
+
+### Où vivent les données
+
+| Quoi | Où |
+|------|---|
+| Fichiers source | `copilot-gemma4/skills/` (dans le repo, versionnés) |
+| Index vectoriel | `~/.local/share/agent-harness/chroma/` (local, regénéré auto) |
+| Modèle d'embedding | `all-MiniLM-L6-v2` (~80 Mo, téléchargé au 1er run, CPU-only) |
+
+### Activation
+
+Le skill RAG est activé dans 6 profils (dev, gemma4-coding, gemma4-doc,
+claude-online, copilot, ops) via `ops_tools.skills.enabled: true`.
+Le chemin est relatif (`path: skills`) et résolu automatiquement par
+rapport au repo root.
+
+Prérequis : `pip install agent-harness[rag]` (inclus dans `agent:setup`).
+
+### Ajouter un nouveau skill
+
+1. Créer `skills/<domain>/SKILL.md`
+2. Optionnel : `skills/<domain>/references/*.md`, `versions/*.md`
+3. Relancer l'agent → Chroma ré-indexe automatiquement les nouveaux fichiers
+
 ## License
 
 MIT. See `LICENSE`.
