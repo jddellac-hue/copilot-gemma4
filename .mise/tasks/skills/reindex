@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-#MISE description="Reconstruire la base vectorielle Chroma à partir de skills/"
+#MISE description="Reconstruire la base vectorielle Chroma (skills/ + dossiers extra)"
+#MISE usage="mise run skills:reindex [-- [--force] [EXTRA_DIR...]]"
 set -euo pipefail
 
 REPO_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
@@ -19,7 +20,27 @@ if ! "$VENV/bin/python3" -c "import chromadb" 2>/dev/null; then
     exit 1
 fi
 
-FORCE="${1:-}"
+# --- Parse arguments: --force flag + extra directory paths ---
+FORCE=""
+EXTRA_DIRS=()
+for arg in "$@"; do
+    if [ "$arg" = "--force" ]; then
+        FORCE="--force"
+    elif [ -d "$arg" ]; then
+        EXTRA_DIRS+=("$(cd "$arg" && pwd)")
+    else
+        echo "[ERREUR] Dossier introuvable : $arg"
+        echo ""
+        echo "Usage : mise run skills:reindex [-- [--force] [EXTRA_DIR...]]"
+        echo ""
+        echo "Exemples :"
+        echo "  mise run skills:reindex                          # skills/ uniquement"
+        echo "  mise run skills:reindex -- ../mon-wiki           # skills/ + wiki"
+        echo "  mise run skills:reindex -- --force ../docs ../adr"
+        exit 1
+    fi
+done
+
 PERSIST_DIR="$HOME/.local/share/agent-harness/chroma"
 STAMP="$PERSIST_DIR/.skills_indexed_at"
 
@@ -29,7 +50,8 @@ if [ "$FORCE" = "--force" ]; then
 fi
 
 # Skip if index is already up-to-date (last commit on skills/ vs stamp)
-if [ -f "$STAMP" ] && [ "$FORCE" != "--force" ]; then
+# Force reindex if extra dirs are provided (no git tracking for those)
+if [ -f "$STAMP" ] && [ "$FORCE" != "--force" ] && [ ${#EXTRA_DIRS[@]} -eq 0 ]; then
     LAST_COMMIT_TS=$(git -C "$REPO_DIR" log -1 --format=%ct -- skills/ 2>/dev/null || echo 0)
     STAMP_TS=$(stat -c %Y "$STAMP" 2>/dev/null || echo 0)
     if [ "$LAST_COMMIT_TS" -le "$STAMP_TS" ] && [ "$LAST_COMMIT_TS" -gt 0 ]; then
@@ -42,16 +64,20 @@ if [ -f "$STAMP" ] && [ "$FORCE" != "--force" ]; then
     fi
 fi
 
-echo "=== Reconstruction de la base vectorielle ==="
-echo "Skills    : $SKILLS_DIR"
-echo "Chroma    : $PERSIST_DIR"
-echo ""
+# Build JSON array of all source directories
+SOURCE_DIRS_JSON="[\"$SKILLS_DIR\""
+for d in "${EXTRA_DIRS[@]}"; do
+    SOURCE_DIRS_JSON+=",\"$d\""
+done
+SOURCE_DIRS_JSON+="]"
 
-# Compter les domaines et fichiers
-DOMAIN_COUNT=$(find "$SKILLS_DIR" -mindepth 1 -maxdepth 1 -type d | wc -l)
-FILE_COUNT=$(find "$SKILLS_DIR" -name "*.md" -type f | wc -l)
-echo "Domaines  : $DOMAIN_COUNT"
-echo "Fichiers  : $FILE_COUNT"
+echo "=== Reconstruction de la base vectorielle ==="
+echo "Sources :"
+echo "  [1] $SKILLS_DIR (skills)"
+for i in "${!EXTRA_DIRS[@]}"; do
+    echo "  [$((i+2))] ${EXTRA_DIRS[$i]} (extra)"
+done
+echo "Chroma  : $PERSIST_DIR"
 echo ""
 
 PYTHONUNBUFFERED=1 "$VENV/bin/python3" -c "
@@ -62,73 +88,119 @@ sys.path.insert(0, '$HARNESS_DIR/src')
 from harness.tools.runbooks import _split_markdown
 from harness.tools.skills import SkillsConfig, _detect_domain, build_skills_tools
 
-skills_path = Path('$SKILLS_DIR')
+source_dirs = json.loads('$SOURCE_DIRS_JSON')
 persist_dir = Path('$PERSIST_DIR')
 
-# --- Phase 1 : Indexation domaine par domaine avec progression ---
+# --- Phase 1 : Indexation de toutes les sources ---
 import chromadb
 
 persist_dir.mkdir(parents=True, exist_ok=True)
 client = chromadb.PersistentClient(path=str(persist_dir))
 collection = client.get_or_create_collection(name='agent_skills')
 
-domains = sorted([d.name for d in skills_path.iterdir()
-                  if d.is_dir() and (d / 'SKILL.md').exists()])
-
-print(f'=== Indexation — {len(domains)} domaines ===')
+all_domains = []
 t0 = time.time()
 total_chunks = 0
+domain_idx = 0
 
-for i, domain in enumerate(domains, 1):
-    domain_dir = skills_path / domain
-    md_files = sorted(domain_dir.rglob('*.md'))
-    domain_chunks = 0
+for source_dir in source_dirs:
+    source_path = Path(source_dir)
+    if not source_path.is_dir():
+        print(f'[WARN] {source_dir} is not a directory, skipping')
+        continue
 
-    for f in md_files:
-        if not f.is_file():
+    domains = sorted([
+        d.name for d in source_path.iterdir()
+        if d.is_dir() and any(d.rglob('*.md'))
+    ])
+
+    if not domains:
+        # Maybe .md files are at root level — treat the directory itself as a single domain
+        md_files = list(source_path.glob('*.md'))
+        if md_files:
+            domains = [source_path.name]
+            # Index root-level files as a single domain
+            domain_chunks = 0
+            for f in sorted(md_files):
+                try:
+                    text = f.read_text(encoding='utf-8')
+                except UnicodeDecodeError:
+                    continue
+                file_hash = hashlib.sha256(text.encode('utf-8')).hexdigest()
+                rel = f.name
+                chunks = _split_markdown(text, 800, 100)
+                ids, documents, metadatas = [], [], []
+                for idx, (section, body) in enumerate(chunks):
+                    ids.append(f'{file_hash}:{idx}')
+                    documents.append(body)
+                    metadatas.append({'file': rel, 'section': section, 'domain': source_path.name, 'chunk_index': str(idx)})
+                if ids:
+                    collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+                    domain_chunks += len(ids)
+            total_chunks += domain_chunks
+            domain_idx += 1
+            elapsed = time.time() - t0
+            print(f'  [{domain_idx:2d}] {source_path.name:<14s} {domain_chunks:4d} chunks  ({elapsed:.0f}s)', flush=True)
+            all_domains.append(source_path.name)
             continue
-        try:
-            text = f.read_text(encoding='utf-8')
-        except UnicodeDecodeError:
-            continue
-        file_hash = hashlib.sha256(text.encode('utf-8')).hexdigest()
-        rel = f.relative_to(skills_path).as_posix()
-        chunks = _split_markdown(text, 800, 100)
 
-        ids, documents, metadatas = [], [], []
-        for idx, (section, body) in enumerate(chunks):
-            ids.append(f'{file_hash}:{idx}')
-            documents.append(body)
-            metadatas.append({'file': rel, 'section': section, 'domain': domain, 'chunk_index': str(idx)})
+    for domain in domains:
+        domain_dir = source_path / domain
+        md_files = sorted(domain_dir.rglob('*.md'))
+        domain_chunks = 0
 
-        if ids:
-            collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
-            domain_chunks += len(ids)
+        for f in md_files:
+            if not f.is_file():
+                continue
+            try:
+                text = f.read_text(encoding='utf-8')
+            except UnicodeDecodeError:
+                continue
+            file_hash = hashlib.sha256(text.encode('utf-8')).hexdigest()
+            rel = f.relative_to(source_path).as_posix()
+            chunks = _split_markdown(text, 800, 100)
 
-    total_chunks += domain_chunks
-    elapsed = time.time() - t0
-    print(f'  [{i:2d}/{len(domains)}] {domain:<14s} {domain_chunks:4d} chunks  ({elapsed:.0f}s)', flush=True)
+            ids, documents, metadatas = [], [], []
+            for idx, (section, body) in enumerate(chunks):
+                ids.append(f'{file_hash}:{idx}')
+                documents.append(body)
+                metadatas.append({'file': rel, 'section': section, 'domain': domain, 'chunk_index': str(idx)})
+
+            if ids:
+                collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+                domain_chunks += len(ids)
+
+        total_chunks += domain_chunks
+        domain_idx += 1
+        elapsed = time.time() - t0
+        print(f'  [{domain_idx:2d}] {domain:<14s} {domain_chunks:4d} chunks  ({elapsed:.0f}s)', flush=True)
+        all_domains.append(domain)
 
 elapsed = time.time() - t0
 
-# Stats volumétrie
-import shutil
+# Stats
 chroma_size = sum(f.stat().st_size for f in persist_dir.rglob('*') if f.is_file())
 chroma_size_mb = chroma_size / (1024 * 1024)
-md_size = sum(f.stat().st_size for f in skills_path.rglob('*.md') if f.is_file())
-md_size_kb = md_size / 1024
+total_md = sum(
+    sum(1 for _ in Path(d).rglob('*.md'))
+    for d in source_dirs if Path(d).is_dir()
+)
+total_md_bytes = sum(
+    sum(f.stat().st_size for f in Path(d).rglob('*.md') if f.is_file())
+    for d in source_dirs if Path(d).is_dir()
+)
 
 print()
 print(f'[OK] Index reconstruit en {elapsed:.1f}s')
 print()
 print(f'  Chunks       : {total_chunks}')
-print(f'  Domaines     : {len(domains)}')
-md_count = sum(1 for _ in skills_path.rglob('*.md'))
-print(f'  Fichiers .md : {md_count} ({md_size_kb:.0f} Ko source)')
+print(f'  Domaines     : {len(all_domains)} ({", ".join(all_domains)})')
+print(f'  Fichiers .md : {total_md} ({total_md_bytes / 1024:.0f} Ko source)')
 print(f'  Chroma DB    : {persist_dir} ({chroma_size_mb:.1f} Mo)')
 print()
 
-# --- Phase 2 : Tests RAG domaine par domaine ---
+# --- Phase 2 : Tests RAG sur les domaines skills/ (ceux qu'on connaît) ---
+skills_path = Path('$SKILLS_DIR')
 config = SkillsConfig(
     enabled=True, path=skills_path, collection_name='agent_skills',
     persist_dir=persist_dir, chunk_size=800, chunk_overlap=100, max_results=5,
@@ -161,19 +233,26 @@ DOMAIN_QUERIES = {
     'test':       'Docker Compose Behave Playwright E2E Oracle',
 }
 
-print(f'=== Tests RAG — {len(domains)} domaines ===')
+# Only test domains that are in skills/ AND have a known query
+skills_domains = sorted([
+    d.name for d in skills_path.iterdir()
+    if d.is_dir() and any(d.rglob('*.md'))
+])
+testable = [d for d in skills_domains if d in DOMAIN_QUERIES]
+
+print(f'=== Tests RAG — {len(testable)} domaines skills/ ===')
 t1 = time.time()
 passed = 0
 failed = 0
-for i, domain in enumerate(domains, 1):
-    query = DOMAIN_QUERIES.get(domain, f'{domain} documentation')
+for i, domain in enumerate(testable, 1):
+    query = DOMAIN_QUERIES[domain]
     r = search.invoke({'query': query, 'domain': domain, 'top_k': 1})
     if r.ok and domain in r.content.lower():
-        print(f'  [{i:2d}/{len(domains)}] ✓ {domain}', flush=True)
+        print(f'  [{i:2d}/{len(testable)}] ✓ {domain}', flush=True)
         passed += 1
     else:
         excerpt = r.content[:80].replace(chr(10), ' ') if r.ok else 'ERROR'
-        print(f'  [{i:2d}/{len(domains)}] ✗ {domain} — {excerpt}', flush=True)
+        print(f'  [{i:2d}/{len(testable)}] ✗ {domain} — {excerpt}', flush=True)
         failed += 1
 
 elapsed_rag = time.time() - t1
@@ -183,7 +262,7 @@ if failed:
     sys.exit(1)
 print(f'[OK] {passed}/{passed} domaines vérifiés ({elapsed_rag:.1f}s)')
 
-# Mettre à jour le stamp pour _ensure_skills_index
+# Mettre à jour le stamp
 Path('$PERSIST_DIR/.skills_indexed_at').touch()
 " || exit 1
 
@@ -191,3 +270,9 @@ echo ""
 echo "Prochaines étapes :"
 echo "  mise run agent:coding -- \"tâche\"    L'agent utilisera l'index mis à jour"
 echo "  mise run chat -- coding              Le chat aussi"
+if [ ${#EXTRA_DIRS[@]} -gt 0 ]; then
+    echo ""
+    echo "Note : les dossiers extra sont indexés dans la même collection."
+    echo "  search_rag trouvera les résultats sans filtre domaine."
+    echo "  Pour re-indexer avec les extras : relancer avec les mêmes arguments."
+fi
