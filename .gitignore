@@ -24,3 +24,4 @@ models/
 agent-harness/eval/report.json
 .chroma/
 chroma_data/
+*_indexed_at

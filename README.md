@@ -330,7 +330,7 @@ Les modèles par défaut sont configurés dans `mise.toml` :
 ```toml
 GEMMA4_CODING_MODEL = "gemma4:26b-a4b-it-q8_0"
 GEMMA4_DOC_MODEL = "gemma4:26b-a4b-it-q8_0"
-GEMMA4_GENERAL_MODEL = "gemma4:26b"
+GEMMA4_GENERAL_MODEL = "gemma4:26b-a4b-it-q8_0"
 ```
 
 Pour changer ponctuellement :

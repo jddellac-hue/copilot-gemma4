@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -74,8 +76,6 @@ class OllamaClient:
         self.temperature = temperature
         self.num_ctx = num_ctx
         # Bypass corporate proxies for localhost connections
-        import os
-
         no_proxy = os.environ.get("no_proxy", "")
         if "localhost" not in no_proxy:
             os.environ["no_proxy"] = (
@@ -142,8 +142,6 @@ class OllamaClient:
     @staticmethod
     def _parse_text_tool_calls(text: str) -> list[ToolCall]:
         """Parse tool calls in text form: <tool_call>{...}</tool_call>."""
-        import re
-
         calls: list[ToolCall] = []
         pattern = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
         for idx, match in enumerate(pattern.finditer(text)):
@@ -162,8 +160,6 @@ class OllamaClient:
 
     @staticmethod
     def _strip_tool_call_markup(text: str) -> str:
-        import re
-
         return re.sub(
             r"<tool_call>.*?</tool_call>", "", text, flags=re.DOTALL
         ).strip()

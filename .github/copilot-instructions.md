@@ -26,12 +26,12 @@ pseudo-copilot/
 └── copilot-gemma4/
     ├── mise.toml                   ← config mise (env vars, tasks)
     ├── scripts/ensure-model.sh     ← auto-install des modèles Ollama
-    ├── .mise/tasks/                ← 20+ tasks mise (agent, chat, model, test)
+    ├── .mise/tasks/                ← 26 tasks mise (agent, chat, model, test)
     └── agent-harness/              ← LE COEUR DU PROJET
         ├── src/harness/            ← Code Python (agent, model, tools, sandbox)
         ├── config/profiles/        ← 11 profils YAML (dev, ci, gemma4, claude, copilot, ops)
         ├── eval/tasks/             ← 7 tâches d'éval reproductibles
-        ├── tests/                  ← 54 tests (unit + integration)
+        ├── tests/                  ← 96 tests (unit + integration)
         └── docs/                   ← KB design + runbook opérateur
 ```
 

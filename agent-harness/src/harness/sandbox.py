@@ -11,6 +11,7 @@ A whitelist + denylist of command patterns is enforced regardless of backend.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -219,8 +220,6 @@ class Sandbox:
     @staticmethod
     def _scrubbed_env(extra: dict[str, str]) -> dict[str, str]:
         """Build a minimal environment, stripping credentials."""
-        import os
-
         keep = {
             "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
             "LANG": os.environ.get("LANG", "C.UTF-8"),

@@ -56,7 +56,7 @@ ROLES = {
         "label": "DOC",
     },
     "general": {
-        "model": os.environ.get("GEMMA4_GENERAL_MODEL", "gemma4:26b"),
+        "model": os.environ.get("GEMMA4_GENERAL_MODEL", "gemma4:26b-a4b-it-q8_0"),
         "system": (
             "Tu es un assistant technique polyvalent. Tu aides avec le code, "
             "la documentation, l'architecture, le DevOps, et les questions "
@@ -227,7 +227,7 @@ def unload_other_models(keep_model):
                     headers={"Content-Type": "application/json"},
                 )
                 urllib.request.urlopen(req, timeout=10)
-    except:
+    except Exception:
         pass
 
 

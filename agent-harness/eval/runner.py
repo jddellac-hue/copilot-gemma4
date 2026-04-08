@@ -103,7 +103,6 @@ def _run_one_task(
             error = f"{type(exc).__name__}: {exc}"
 
         # Persist the final answer for bash success checks that may want it
-        (workspace / "..").resolve()
         with contextlib.suppress(OSError):
             Path("/tmp/agent-eval-final.txt").write_text(answer, encoding="utf-8")
 

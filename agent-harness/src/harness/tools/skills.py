@@ -99,20 +99,57 @@ def _detect_domain(file_path: Path, skills_root: Path) -> str:
     return parts[0] if parts else "unknown"
 
 
+def _discover_domains(skills_path: Path) -> list[str]:
+    """Return sorted list of domain names from the skills directory."""
+    if not skills_path.is_dir():
+        return []
+    return sorted(
+        d.name
+        for d in skills_path.iterdir()
+        if d.is_dir() and (d / "SKILL.md").is_file()
+    )
+
+
+def _needs_reindex(config: SkillsConfig) -> bool:
+    """Check whether skills files have changed since the last index.
+
+    Compares the mtime of a stamp file against the newest .md file under
+    the skills directory.  If the stamp is missing or older, returns True.
+    """
+    stamp = config.persist_dir / f".{config.collection_name}_indexed_at"
+    if not stamp.exists():
+        return True
+    stamp_mtime = stamp.stat().st_mtime
+    return any(f.is_file() and f.stat().st_mtime > stamp_mtime for f in config.path.rglob("*.md"))
+
+
+def _touch_stamp(config: SkillsConfig) -> None:
+    """Touch the stamp file to record the indexing time."""
+    stamp = config.persist_dir / f".{config.collection_name}_indexed_at"
+    stamp.touch()
+
+
 def _index_skills(collection: Any, config: SkillsConfig) -> tuple[int, list[str]]:
     """Index all markdown files under config.path.
 
     Returns (chunk_count, list_of_domains).
+    Skips re-indexing when the stamp file is newer than all skill files.
     """
+    domains = _discover_domains(config.path)
+    if not domains:
+        logger.warning("no skill files found under %s", config.path)
+        return 0, domains
+
+    if not _needs_reindex(config):
+        n_existing = collection.count()
+        logger.info("skills index up-to-date (%d chunks), skipping reindex", n_existing)
+        return n_existing, domains
+
     # Reuse the markdown chunker from runbooks — it is pure logic
     from harness.tools.runbooks import _split_markdown
 
     indexed = 0
-    domains: set[str] = set()
     files = sorted(config.path.rglob("*.md"))
-    if not files:
-        logger.warning("no skill files found under %s", config.path)
-        return 0, []
 
     for f in files:
         if not f.is_file():
@@ -124,7 +161,6 @@ def _index_skills(collection: Any, config: SkillsConfig) -> tuple[int, list[str]
             continue
 
         domain = _detect_domain(f, config.path)
-        domains.add(domain)
         file_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
         rel = f.relative_to(config.path).as_posix()
 
@@ -149,7 +185,8 @@ def _index_skills(collection: Any, config: SkillsConfig) -> tuple[int, list[str]
             collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
             indexed += len(ids)
 
-    return indexed, sorted(domains)
+    _touch_stamp(config)
+    return indexed, domains
 
 
 def build_skills_tools(config: SkillsConfig) -> list[Tool]:
@@ -228,7 +265,7 @@ def build_skills_tools(config: SkillsConfig) -> list[Tool]:
         risk="safe",
         side_effects={"read"},
     )
-    def search_skills(args: dict) -> ToolResult:
+    def search_skills(args: dict[str, Any]) -> ToolResult:
         top_k = min(int(args.get("top_k", 5)), config.max_results)
         where_filter: dict[str, str] | None = None
         domain = args.get("domain")
