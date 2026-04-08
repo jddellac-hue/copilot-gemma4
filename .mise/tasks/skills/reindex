@@ -39,52 +39,96 @@ echo "Domaines  : $DOMAIN_COUNT"
 echo "Fichiers  : $FILE_COUNT"
 echo ""
 
-"$VENV/bin/python3" -c "
-import sys, json, os
+PYTHONUNBUFFERED=1 "$VENV/bin/python3" -c "
+import sys, json, os, time, hashlib
 from pathlib import Path
 
-import time
 sys.path.insert(0, '$HARNESS_DIR/src')
-from harness.tools.skills import SkillsConfig, build_skills_tools, _index_skills
+from harness.tools.runbooks import _split_markdown
+from harness.tools.skills import SkillsConfig, _detect_domain, build_skills_tools
 
 skills_path = Path('$SKILLS_DIR')
-config = SkillsConfig(
-    enabled=True,
-    path=skills_path,
-    collection_name='agent_skills',
-    persist_dir=Path('$PERSIST_DIR'),
-    chunk_size=800,
-    chunk_overlap=100,
-    max_results=5,
-)
+persist_dir = Path('$PERSIST_DIR')
 
-print('[...] Indexation en cours...')
+# --- Phase 1 : Indexation domaine par domaine avec progression ---
+import chromadb
+
+persist_dir.mkdir(parents=True, exist_ok=True)
+client = chromadb.PersistentClient(path=str(persist_dir))
+collection = client.get_or_create_collection(name='agent_skills')
+
+domains = sorted([d.name for d in skills_path.iterdir()
+                  if d.is_dir() and (d / 'SKILL.md').exists()])
+
+print(f'=== Indexation — {len(domains)} domaines ===')
 t0 = time.time()
-tools = build_skills_tools(config)
+total_chunks = 0
+
+for i, domain in enumerate(domains, 1):
+    domain_dir = skills_path / domain
+    md_files = sorted(domain_dir.rglob('*.md'))
+    domain_chunks = 0
+
+    for f in md_files:
+        if not f.is_file():
+            continue
+        try:
+            text = f.read_text(encoding='utf-8')
+        except UnicodeDecodeError:
+            continue
+        file_hash = hashlib.sha256(text.encode('utf-8')).hexdigest()
+        rel = f.relative_to(skills_path).as_posix()
+        chunks = _split_markdown(text, 800, 100)
+
+        ids, documents, metadatas = [], [], []
+        for idx, (section, body) in enumerate(chunks):
+            ids.append(f'{file_hash}:{idx}')
+            documents.append(body)
+            metadatas.append({'file': rel, 'section': section, 'domain': domain, 'chunk_index': str(idx)})
+
+        if ids:
+            collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+            domain_chunks += len(ids)
+
+    total_chunks += domain_chunks
+    elapsed = time.time() - t0
+    print(f'  [{i:2d}/{len(domains)}] {domain:<14s} {domain_chunks:4d} chunks  ({elapsed:.0f}s)', flush=True)
+
 elapsed = time.time() - t0
 
+# Stats volumétrie
+import shutil
+chroma_size = sum(f.stat().st_size for f in persist_dir.rglob('*') if f.is_file())
+chroma_size_mb = chroma_size / (1024 * 1024)
+md_size = sum(f.stat().st_size for f in skills_path.rglob('*.md') if f.is_file())
+md_size_kb = md_size / 1024
+
+print()
+print(f'[OK] Index reconstruit en {elapsed:.1f}s')
+print()
+print(f'  Chunks       : {total_chunks}')
+print(f'  Domaines     : {len(domains)}')
+print(f'  Fichiers .md : {sum(1 for _ in skills_path.rglob("*.md"))} ({md_size_kb:.0f} Ko source)')
+print(f'  Chroma DB    : {persist_dir} ({chroma_size_mb:.1f} Mo)')
+print()
+
+# --- Phase 2 : Tests RAG domaine par domaine ---
+config = SkillsConfig(
+    enabled=True, path=skills_path, collection_name='agent_skills',
+    persist_dir=persist_dir, chunk_size=800, chunk_overlap=100, max_results=5,
+)
+tools = build_skills_tools(config)
 if not tools:
     print('[ERREUR] build_skills_tools a retourné une liste vide')
     sys.exit(1)
 
-# Compter les chunks dans la collection
-try:
-    import chromadb
-    client = chromadb.PersistentClient(path='$PERSIST_DIR')
-    collection = client.get_collection('agent_skills')
-    chunk_count = collection.count()
-except Exception:
-    chunk_count = '?'
-
 search = tools[0]
-print(f'[OK] Index reconstruit : {chunk_count} chunks en {elapsed:.1f}s')
-print()
 
-# Requêtes de test par domaine — une par skill détecté
 DOMAIN_QUERIES = {
     'angular':    'Angular standalone components signals testing',
     'base':       'Oracle Flyway migration schemas Docker',
     'concourse':  'Concourse pipeline jobs resources tasks',
+    'cutter':     'Cookiecutter Streamlit uv Kustomize',
     'devops':     'conventional commits semantic versioning CI/CD',
     'dsn':        'DSN fragment unicité N4DS declaration sociale',
     'dynatrace':  'DQL fetch filter tags entity Grail',
@@ -98,35 +142,30 @@ DOMAIN_QUERIES = {
     'spring':     'Spring Boot autoconfiguration JPA Security Actuator',
     'sre':        'SLI SLO error budget golden signals PVH',
     'tanzu':      'BOSH Diego cf push Cloud Foundry Tanzu',
-    'cutter':     'Cookiecutter Streamlit uv Kustomize',
     'test':       'Docker Compose Behave Playwright E2E Oracle',
 }
 
-# Détecter dynamiquement tous les domaines
-domains = sorted([
-    d.name for d in skills_path.iterdir()
-    if d.is_dir() and (d / 'SKILL.md').exists()
-])
-
 print(f'=== Tests RAG — {len(domains)} domaines ===')
+t1 = time.time()
 passed = 0
 failed = 0
-for domain in domains:
+for i, domain in enumerate(domains, 1):
     query = DOMAIN_QUERIES.get(domain, f'{domain} documentation')
     r = search.invoke({'query': query, 'domain': domain, 'top_k': 1})
     if r.ok and domain in r.content.lower():
-        print(f'  ✓ {domain}')
+        print(f'  [{i:2d}/{len(domains)}] ✓ {domain}', flush=True)
         passed += 1
     else:
         excerpt = r.content[:80].replace(chr(10), ' ') if r.ok else 'ERROR'
-        print(f'  ✗ {domain} — query: \"{query[:50]}\" → {excerpt}')
+        print(f'  [{i:2d}/{len(domains)}] ✗ {domain} — {excerpt}', flush=True)
         failed += 1
 
+elapsed_rag = time.time() - t1
 print()
 if failed:
-    print(f'[ECHEC] {passed} passés, {failed} échoués')
+    print(f'[ECHEC] {passed} passés, {failed} échoués ({elapsed_rag:.1f}s)')
     sys.exit(1)
-print(f'[OK] {passed}/{passed} domaines vérifiés')
+print(f'[OK] {passed}/{passed} domaines vérifiés ({elapsed_rag:.1f}s)')
 " || exit 1
 
 echo ""
