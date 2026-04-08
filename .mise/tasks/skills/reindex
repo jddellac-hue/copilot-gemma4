@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 #MISE description="Reconstruire la base vectorielle Chroma (skills/ + dossiers extra)"
-#MISE usage="mise run skills:reindex [-- [--force] [EXTRA_DIR...]]"
 set -euo pipefail
 
 REPO_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
