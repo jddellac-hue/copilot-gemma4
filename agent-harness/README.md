@@ -109,7 +109,7 @@ Deux modes d'intégration dans l'IDE, avec des rôles différents :
 
 Le harness expose un serveur OpenAI-compatible. Chaque message dans le
 chat IDE déclenche une **session agent complète** : le modèle raisonne,
-appelle les outils (read file, bash, search_skills, etc.), et retourne
+appelle les outils (read file, bash, search_rag, etc.), et retourne
 la réponse finale.
 
 #### Etape 1 — Démarrer le serveur (terminal)
@@ -153,7 +153,7 @@ Le serveur tourne sur `http://127.0.0.1:11500/v1`. **Le laisser tourner** pendan
    ```
 3. Le serveur exécute une session agent complète en arrière-plan :
    - Le modèle lit le fichier via `read_file`
-   - Il peut chercher dans les skills via `search_skills`
+   - Il peut chercher dans les skills via `search_rag`
    - Il retourne la réponse enrichie
 4. Exemples de questions utiles :
    ```
@@ -230,8 +230,8 @@ Puis configurer l'IDE pour pointer vers le serveur MCP stdio.
 
 | Chatmode | Outils exposés | Usage |
 |----------|---------------|-------|
-| **Gemma Agent** | read/write/edit/search files, bash, search_skills | Explorer, analyser, modifier du code |
-| **Ops Investigation** | Dynatrace DQL/problems/entities, kubectl get/describe/logs, search_runbooks, search_skills, Concourse pipelines/builds/logs | Investigation d'incidents en read-only |
+| **Gemma Agent** | read/write/edit/search files, bash, search_rag | Explorer, analyser, modifier du code |
+| **Ops Investigation** | Dynatrace DQL/problems/entities, kubectl get/describe/logs, search_runbooks, search_rag, Concourse pipelines/builds/logs | Investigation d'incidents en read-only |
 
 ---
 
@@ -244,7 +244,7 @@ Puis configurer l'IDE pour pointer vers le serveur MCP stdio.
 | **Offline** | Oui (avec Gemma) | Non (Copilot = cloud) |
 | **Vitesse** | ~30 tok/s CPU, 5-30s/réponse | Rapide (cloud) |
 | **Coût** | Gratuit (Gemma local) | Licence Copilot |
-| **Skills RAG** | Oui (search_skills intégré) | Oui (via MCP) |
+| **Skills RAG** | Oui (search_rag intégré) | Oui (via MCP) |
 | **Config** | Terminal + Custom LLM dans IDE | Automatique (MCP discovery) |
 | **IDE** | IntelliJ AI Assistant | VS Code Copilot Chat, IntelliJ Copilot |
 | **Quand l'utiliser** | Offline, données sensibles, gratuit | En ligne, réponses rapides |
@@ -361,7 +361,7 @@ See `docs/README-operator.md` § 6 for the full activation procedure.
 
 ## Domain skills (RAG)
 
-L'agent dispose d'un outil `search_skills` qui lui donne accès à une
+L'agent dispose d'un outil `search_rag` qui lui donne accès à une
 base de connaissances métier sur **18 domaines techniques**. Cet outil
 utilise un RAG local (Chroma + embeddings CPU) pour retrouver les
 extraits pertinents par recherche sémantique.
@@ -400,8 +400,8 @@ DÉMARRAGE (une fois par session agent)
   4. Upsert dans Chroma (idempotent : même hash SHA256 = skip)
   → ~994 chunks indexés, quasi-instantané après le premier run
 
-RUNTIME (à chaque appel search_skills)
-  1. Le modèle appelle search_skills(query="...", domain="quarkus")
+RUNTIME (à chaque appel search_rag)
+  1. Le modèle appelle search_rag(query="...", domain="quarkus")
   2. Chroma fait une recherche vectorielle (embedding similarity)
      directement dans son index — PAS de relecture des fichiers .md
   3. Retourne les top-5 chunks avec score, fichier source, section, domaine

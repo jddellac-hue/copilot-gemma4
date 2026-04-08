@@ -97,7 +97,7 @@ AI Assistant appelle automatiquement les outils MCP quand c'est pertinent.
 | `write_file` | Écrire un fichier (avec confirmation) |
 | `edit_file` | Modifier un fichier (avec confirmation) |
 | `bash` | Exécuter une commande dans le sandbox |
-| `search_skills` | Chercher dans les 18 skills RAG |
+| `search_rag` | Chercher dans les 18 skills RAG |
 
 En profil ops, s'ajoutent : `dynatrace_dql`, `kubectl_get`, `search_runbooks`, `concourse_pipelines`, etc.
 

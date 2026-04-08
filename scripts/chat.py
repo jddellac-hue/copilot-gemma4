@@ -2,7 +2,7 @@
 """Chat interactif avec un modèle Gemma 4 local via Ollama.
 
 Si chromadb et le harness sont installés, le chat enrichit chaque message
-avec du contexte issu des skills RAG (search_skills). Sinon le chat
+avec du contexte issu des skills RAG (search_rag). Sinon le chat
 fonctionne normalement sans RAG.
 """
 
@@ -73,12 +73,11 @@ ROLES = {
 # ---------------------------------------------------------------------------
 _skills_tool = None
 _rag_enabled = False
-_skill_domains = []  # populated by _init_rag
 
 
 def _init_rag():
     """Try to load skills RAG. Returns True if available."""
-    global _skills_tool, _rag_enabled, _skill_domains
+    global _skills_tool, _rag_enabled
     try:
         # Find the repo root (scripts/ is one level below)
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -109,56 +108,24 @@ def _init_rag():
         if tools:
             _skills_tool = tools[0]
             _rag_enabled = True
-            # Collect domain names for keyword matching
-            _skill_domains = sorted([
-                d for d in os.listdir(skills_dir)
-                if os.path.isdir(os.path.join(skills_dir, d))
-                and os.path.isfile(os.path.join(skills_dir, d, "SKILL.md"))
-            ])
             return True
     except Exception:
         pass
     return False
 
 
-def _search_skills(query):
+def _search_rag(query):
     """Search skills and return context string, or empty string.
 
-    Two-pass strategy:
-    1. Detect domain names mentioned in the query → targeted search per domain
-    2. General search across all domains to fill remaining slots
-    Dedup by chunk content.
+    Delegates to search_rag tool which handles auto-detection of
+    domains mentioned in the query (including aliases like rabbit→rabbitmq).
     """
     if not _skills_tool:
         return ""
     try:
-        results = []
-        seen = set()
-        query_lower = query.lower()
-
-        # Pass 1: targeted search for explicitly mentioned domains
-        for domain in _skill_domains:
-            if domain in query_lower:
-                r = _skills_tool.invoke({"query": query, "domain": domain, "top_k": 2})
-                if r.ok and "no skill matched" not in r.content:
-                    for chunk in r.content.split("\n\n--- ["):
-                        if chunk not in seen:
-                            seen.add(chunk)
-                            results.append(chunk if chunk.startswith("--- [") else "--- [" + chunk)
-
-        # Pass 2: general search to fill up to 5 results
-        remaining = 5 - len(results)
-        if remaining > 0:
-            r = _skills_tool.invoke({"query": query, "top_k": remaining + 2})
-            if r.ok and "no skill matched" not in r.content:
-                for chunk in r.content.split("\n\n--- ["):
-                    clean = chunk if chunk.startswith("--- [") else "--- [" + chunk
-                    if clean not in seen and len(results) < 5:
-                        seen.add(clean)
-                        results.append(clean)
-
-        if results:
-            return "\n\n".join(results)
+        r = _skills_tool.invoke({"query": query, "top_k": 5})
+        if r.ok and "no skill matched" not in r.content:
+            return r.content
     except Exception:
         pass
     return ""
@@ -362,7 +329,7 @@ def main():
                         print(f"{DIM}Usage : /skills <recherche>{RESET}")
                         print(f"{DIM}Ex : /skills Kafka consumer strategy{RESET}")
                     elif _skills_tool:
-                        ctx = _search_skills(query)
+                        ctx = _search_rag(query)
                         if ctx:
                             print(f"\n{DIM}{ctx}{RESET}\n")
                         else:
@@ -378,7 +345,7 @@ def main():
             # RAG : enrichir avec le contexte des skills
             rag_context = ""
             if _rag_enabled:
-                rag_context = _search_skills(user_input)
+                rag_context = _search_rag(user_input)
 
             if rag_context:
                 # Injecter le contexte comme message système temporaire

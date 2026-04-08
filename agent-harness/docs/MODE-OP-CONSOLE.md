@@ -35,7 +35,7 @@ mise run agent:claude -- "Refactorise le module auth"
 mise run agent:copilot -- "Explique l'architecture"
 ```
 
-L'agent a accès à : filesystem, bash sandboxé, search_skills (RAG),
+L'agent a accès à : filesystem, bash sandboxé, search_rag (RAG),
 et en profil ops : Dynatrace, Kubernetes, runbooks, Concourse.
 
 ### Serveurs pour outils tiers

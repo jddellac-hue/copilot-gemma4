@@ -1,7 +1,7 @@
 """Domain skills RAG tool.
 
 Indexes a directory of domain skill documents into a local Chroma collection
-and exposes ``search_skills(query, domain?)``.  Each subdirectory under the
+and exposes ``search_rag(query, domain?)``.  Each subdirectory under the
 skills path is a **domain** (e.g. angular, oracle, quarkus).  The agent
 calls this tool to retrieve detailed domain expertise on demand.
 
@@ -15,7 +15,7 @@ Design notes
   inside each skill directory.
 - Optional dependency: ``chromadb`` (``[rag]`` extra).  If not installed,
   ``build_skills_tools`` returns an empty list with a warning.
-- Lazy initialization: Chroma is loaded on first ``search_skills`` call,
+- Lazy initialization: Chroma is loaded on first ``search_rag`` call,
   not during tool construction.  This keeps MCP server startup fast.
 
 Directory layout expected::
@@ -200,7 +200,7 @@ def build_skills_tools(config: SkillsConfig) -> list[Tool]:
 
     Returns [] if disabled, if the skills directory does not exist, or if
     no domains are found.  Chroma is loaded lazily on first
-    ``search_skills`` call so that MCP server startup is not blocked.
+    ``search_rag`` call so that MCP server startup is not blocked.
     """
     if not config.enabled:
         return []
@@ -225,7 +225,7 @@ def build_skills_tools(config: SkillsConfig) -> list[Tool]:
     def _ensure_collection() -> Any:
         """Import chromadb, open the collection, and index if needed.
 
-        Called once on first search_skills invocation.  Subsequent calls
+        Called once on first search_rag invocation.  Subsequent calls
         return the cached collection.
         """
         if "collection" in _lazy:
@@ -256,13 +256,78 @@ def build_skills_tools(config: SkillsConfig) -> list[Tool]:
         _lazy["collection"] = collection
         return collection
 
+    # Domain aliases — common abbreviations or partial names that should
+    # match a known domain even when the exact directory name is not used.
+    _domain_aliases: dict[str, str] = {
+        "rabbit": "rabbitmq",
+        "rmq": "rabbitmq",
+        "amqp": "rabbitmq",
+        "k8s": "kubernetes",
+        "kube": "kubernetes",
+        "helm": "kubernetes",
+        "cf": "tanzu",
+        "cloudfoundry": "tanzu",
+        "cloud foundry": "tanzu",
+        "tas": "tanzu",
+        "bosh": "tanzu",
+        "dt": "dynatrace",
+        "dql": "dynatrace",
+        "grail": "dynatrace",
+        "sonar": "java",
+        "jacoco": "java",
+        "junit": "java",
+        "maven": "java",
+        "flyway": "oracle",
+        "goldengate": "oracle",
+        "n4ds": "dsn",
+        "playwright": "test",
+        "behave": "test",
+        "cypress": "angular",
+        "jest": "angular",
+        "cookiecutter": "cutter",
+        "streamlit": "cutter",
+        "actuator": "spring",
+        "kafka": "quarkus",
+        "slo": "sre",
+        "sli": "sre",
+    }
+
+    def _detect_domains_in_query(query: str) -> list[str]:
+        """Detect domain names and aliases mentioned in the query text."""
+        query_lower = query.lower()
+        matched: set[str] = set()
+        # Direct domain name match
+        for d in domains:
+            if d in query_lower:
+                matched.add(d)
+        # Alias match
+        for alias, target in _domain_aliases.items():
+            if alias in query_lower and target in domains:
+                matched.add(target)
+        return sorted(matched)
+
+    def _query_collection(
+        coll: Any, query: str, top_k: int, domain: str | None = None,
+    ) -> list[tuple[str, dict[str, str], float]]:
+        """Run a single Chroma query; returns list of (doc, meta, dist)."""
+        kwargs: dict[str, Any] = {"query_texts": [query], "n_results": top_k}
+        if domain:
+            kwargs["where"] = {"domain": domain}
+        results = coll.query(**kwargs)
+        docs = (results.get("documents") or [[]])[0]
+        metas = (results.get("metadatas") or [[]])[0]
+        dists = (results.get("distances") or [[]])[0]
+        return list(zip(docs, metas, dists, strict=False))
+
     @tool(
-        name="search_skills",
+        name="search_rag",
         description=(
             "Search domain expertise by semantic similarity. "
             "Returns detailed knowledge about technologies, patterns, "
             "and best practices. Available domains: " + domain_list + ". "
-            "Use 'domain' to restrict results to a specific area. "
+            "When no domain is specified, domains mentioned in the query "
+            "are auto-detected (including aliases like rabbit→rabbitmq, "
+            "k8s→kubernetes, tas→tanzu). "
             "Examples: query='Kafka consumer acknowledgment strategy' domain='quarkus', "
             "query='DQL filter tags' domain='dynatrace', "
             "query='Flyway migration order'."
@@ -278,7 +343,7 @@ def build_skills_tools(config: SkillsConfig) -> list[Tool]:
                     "type": "string",
                     "description": (
                         "Optional: restrict search to a specific skill domain "
-                        f"({domain_list})"
+                        f"({domain_list}). Leave empty for auto-detection."
                     ),
                 },
                 "top_k": {
@@ -293,7 +358,7 @@ def build_skills_tools(config: SkillsConfig) -> list[Tool]:
         risk="safe",
         side_effects={"read"},
     )
-    def search_skills(args: dict[str, Any]) -> ToolResult:
+    def search_rag(args: dict[str, Any]) -> ToolResult:
         collection = _ensure_collection()
         if collection is None:
             return ToolResult(
@@ -301,36 +366,54 @@ def build_skills_tools(config: SkillsConfig) -> list[Tool]:
                 content="chromadb not installed — run: pip install agent-harness[rag]",
             )
 
+        query = args["query"]
         top_k = min(int(args.get("top_k", 5)), config.max_results)
-        where_filter: dict[str, str] | None = None
-        domain = args.get("domain")
-        if domain and isinstance(domain, str):
-            where_filter = {"domain": domain}
+        explicit_domain = args.get("domain")
 
+        hits: list[tuple[str, dict[str, str], float]] = []
         try:
-            query_kwargs: dict[str, Any] = {
-                "query_texts": [args["query"]],
-                "n_results": top_k,
-            }
-            if where_filter is not None:
-                query_kwargs["where"] = where_filter
-            results = collection.query(**query_kwargs)
+            if explicit_domain and isinstance(explicit_domain, str):
+                # Explicit domain — single search, honour the caller
+                hits = _query_collection(collection, query, top_k, explicit_domain)
+            else:
+                # Auto-detect: two-pass strategy
+                # Pass 1 — targeted search per detected domain
+                detected = _detect_domains_in_query(query)
+                seen_ids: set[str] = set()
+                per_domain = max(2, top_k // max(len(detected), 1))
+                for d in detected:
+                    for doc, meta, dist in _query_collection(collection, query, per_domain, d):
+                        chunk_id = f"{meta.get('file')}:{meta.get('chunk_index')}"
+                        if chunk_id not in seen_ids:
+                            seen_ids.add(chunk_id)
+                            hits.append((doc, meta, dist))
+
+                # Pass 2 — general search to fill remaining slots
+                remaining = top_k - len(hits)
+                if remaining > 0:
+                    for doc, meta, dist in _query_collection(
+                        collection, query, remaining + 2
+                    ):
+                        chunk_id = f"{meta.get('file')}:{meta.get('chunk_index')}"
+                        if chunk_id not in seen_ids and len(hits) < top_k:
+                            seen_ids.add(chunk_id)
+                            hits.append((doc, meta, dist))
+
         except Exception as exc:
             return ToolResult(
                 ok=False, content=f"skill search failed: {exc}"
             )
 
-        documents = (results.get("documents") or [[]])[0]
-        metadatas = (results.get("metadatas") or [[]])[0]
-        distances = (results.get("distances") or [[]])[0]
-
-        if not documents:
+        if not hits:
             return ToolResult(ok=True, content="[no skill matched]")
 
         out_lines: list[str] = []
-        for doc, meta, dist in zip(documents, metadatas, distances, strict=False):
+        matched_domains: set[str] = set()
+        for doc, meta, dist in hits:
+            d = meta.get("domain", "?")
+            matched_domains.add(d)
             header = (
-                f"--- [{meta.get('domain', '?')}] "
+                f"--- [{d}] "
                 f"{meta.get('file', '?')} :: {meta.get('section', '?')} "
                 f"(score={1 - dist:.3f}) ---"
             )
@@ -340,10 +423,11 @@ def build_skills_tools(config: SkillsConfig) -> list[Tool]:
             ok=True,
             content="\n\n".join(out_lines),
             metadata={
-                "matches": len(documents),
-                "query": args["query"],
-                "domain_filter": domain,
+                "matches": len(hits),
+                "query": query,
+                "domains": sorted(matched_domains),
+                "domain_filter": explicit_domain,
             },
         )
 
-    return [search_skills]
+    return [search_rag]

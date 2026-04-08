@@ -67,7 +67,7 @@ Les 3 modes :
 
 Dans le mode Agent, cliquer sur l'icône **outils** (puzzle) en bas du chat.
 Les outils du harness doivent apparaître en vert :
-`read_file`, `list_dir`, `search_files`, `write_file`, `edit_file`, `bash`, `search_skills`
+`read_file`, `list_dir`, `search_files`, `write_file`, `edit_file`, `bash`, `search_rag`
 
 ### Étape 4 — Choisir le modèle
 
@@ -234,7 +234,7 @@ Cliquer sur l'icône MCP dans Cline → Configure → éditer `cline_mcp_setting
       "env": {
         "PYTHONUNBUFFERED": "1"
       },
-      "alwaysAllow": ["read_file", "list_dir", "search_files", "search_skills"],
+      "alwaysAllow": ["read_file", "list_dir", "search_files", "search_rag"],
       "disabled": false
     }
   }

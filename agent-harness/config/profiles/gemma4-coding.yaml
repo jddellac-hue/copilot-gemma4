@@ -119,7 +119,7 @@ permissions:
         - "pip\\s+install"
 
     # ---- Skills: read-only RAG search ----
-    - tool: search_skills
+    - tool: search_rag
       decision: allow
 
     # ---- Catch-all ----

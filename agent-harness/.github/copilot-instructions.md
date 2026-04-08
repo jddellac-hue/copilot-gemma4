@@ -107,7 +107,7 @@ The harness ships with five optional ops integrations under
   mutating verbs**.
 - `runbooks.py` — `search_runbooks` (RAG over a markdown directory via
   Chroma). Optional dep; install with `pip install agent-harness[rag]`.
-- `skills.py` — `search_skills` (RAG over domain skill documentation via
+- `skills.py` — `search_rag` (RAG over domain skill documentation via
   Chroma). Indexes a skills directory where each subdirectory is a domain
   (angular, oracle, quarkus, etc.). Supports optional `domain` filter.
   Optional dep; install with `pip install agent-harness[rag]`.

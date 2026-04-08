@@ -210,7 +210,7 @@ Taper dans le chat :
 Quels outils MCP as-tu à disposition ?
 ```
 
-Copilot doit lister : `read_file`, `list_dir`, `search_files`, `write_file`, `edit_file`, `bash`, `search_skills`, etc.
+Copilot doit lister : `read_file`, `list_dir`, `search_files`, `write_file`, `edit_file`, `bash`, `search_rag`, etc.
 
 ---
 

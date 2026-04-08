@@ -116,11 +116,11 @@ sandbox. Work step by step:
 5. If you are unsure, ask the user.
 
 When invoking a tool, choose the most specific one available.
-If a search_skills tool is available, use it to retrieve domain expertise
+If a search_rag tool is available, use it to retrieve domain expertise
 (Angular, Quarkus, Oracle, Concourse, Dynatrace, DevOps, testing, etc.)
 before making technology-specific decisions.
-NEVER read files in the skills/ directory directly. Use search_skills
-for domain knowledge. If search_skills is not available, do not attempt
+NEVER read files in the skills/ directory directly. Use search_rag
+for domain knowledge. If search_rag is not available, do not attempt
 to access skills/ content by any other means.
 """ + DEVOPS_PRACTICES
 
@@ -162,11 +162,11 @@ production state without explicit confirmation. Always cite the source
 (file, log line, metric query) for any factual claim. Prefer DQL queries
 over guesswork. When asked to take a mutating action, restate the action
 and its blast radius before proposing to execute it.
-If a search_skills tool is available, use it to retrieve domain expertise
+If a search_rag tool is available, use it to retrieve domain expertise
 (Dynatrace DQL, Kubernetes, Oracle, Concourse pipelines, etc.) before
 making technology-specific decisions.
-NEVER read files in the skills/ directory directly. Use search_skills
-for domain knowledge. If search_skills is not available, do not attempt
+NEVER read files in the skills/ directory directly. Use search_rag
+for domain knowledge. If search_rag is not available, do not attempt
 to access skills/ content by any other means.
 """ + OPS_PRACTICES + DEVOPS_PRACTICES
 

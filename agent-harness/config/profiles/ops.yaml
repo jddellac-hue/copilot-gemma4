@@ -208,7 +208,7 @@ permissions:
       decision: allow
     - tool: concourse_build_logs
       decision: allow
-    - tool: search_skills
+    - tool: search_rag
       decision: allow
     - tool: sonarqube_quality_gate
       decision: allow

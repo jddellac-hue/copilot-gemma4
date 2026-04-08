@@ -66,7 +66,7 @@ def skills_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def skills_tools(skills_dir: Path, tmp_path: Path):
-    """Build the search_skills tool with a real Chroma collection."""
+    """Build the search_rag tool with a real Chroma collection."""
     persist_dir = tmp_path / "chroma_test"
     config = SkillsConfig(
         enabled=True,
@@ -78,7 +78,7 @@ def skills_tools(skills_dir: Path, tmp_path: Path):
         max_results=5,
     )
     tools = build_skills_tools(config)
-    assert len(tools) == 1, "Expected exactly one tool (search_skills)"
+    assert len(tools) == 1, "Expected exactly one tool (search_rag)"
     return tools[0]
 
 

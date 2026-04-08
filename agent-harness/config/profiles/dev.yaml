@@ -137,7 +137,7 @@ permissions:
         - "mvn\\s+deploy"
 
     # ---- Skills: read-only RAG search ----
-    - tool: search_skills
+    - tool: search_rag
       decision: allow
 
     # ---- MCP tools: catch-all for tools loaded from external MCP servers ----
