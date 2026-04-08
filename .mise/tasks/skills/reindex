@@ -40,15 +40,16 @@ echo "Fichiers  : $FILE_COUNT"
 echo ""
 
 "$VENV/bin/python3" -c "
-import sys, json
+import sys, json, os
 from pathlib import Path
 
 sys.path.insert(0, '$HARNESS_DIR/src')
 from harness.tools.skills import SkillsConfig, build_skills_tools
 
+skills_path = Path('$SKILLS_DIR')
 config = SkillsConfig(
     enabled=True,
-    path=Path('$SKILLS_DIR'),
+    path=skills_path,
     collection_name='agent_skills',
     persist_dir=Path('$PERSIST_DIR'),
     chunk_size=800,
@@ -60,34 +61,60 @@ if not tools:
     print('[ERREUR] build_skills_tools a retourné une liste vide')
     sys.exit(1)
 
-# Vérification : 3 requêtes de test
 search = tools[0]
-tests = [
-    ('Kafka acknowledgment strategy', 'quarkus'),
-    ('pod CrashLoopBackOff', 'kubernetes'),
-    ('DQL fetch filter tags', 'dynatrace'),
-]
-
 print('[OK] Index reconstruit')
 print()
-print('=== Vérification ===')
-all_ok = True
-for query, expected_domain in tests:
-    r = search.invoke({'query': query, 'domain': expected_domain, 'top_k': 1})
-    if r.ok and expected_domain in r.content.lower():
-        print(f'  ✓ \"{query}\" → {expected_domain}')
-    else:
-        print(f'  ✗ \"{query}\" → attendu {expected_domain}, obtenu: {r.content[:60]}')
-        all_ok = False
 
-if not all_ok:
-    sys.exit(1)
+# Requêtes de test par domaine — une par skill détecté
+DOMAIN_QUERIES = {
+    'angular':    'Angular standalone components signals testing',
+    'base':       'Oracle Flyway migration schemas Docker',
+    'concourse':  'Concourse pipeline jobs resources tasks',
+    'devops':     'conventional commits semantic versioning CI/CD',
+    'dsn':        'DSN fragment unicité N4DS declaration sociale',
+    'dynatrace':  'DQL fetch filter tags entity Grail',
+    'java':       'JUnit 5 DisplayName AssertJ MockitoBean',
+    'kubernetes': 'pod CrashLoopBackOff diagnostic GitOps ArgoCD',
+    'mermaid':    'Mermaid sequence diagram flowchart mindmap',
+    'mise':       'mise task shebang pipefail toml',
+    'oracle':     'CDB PDB ARCHIVELOG GoldenGate tablespace',
+    'quarkus':    'Kafka acknowledgment strategy Quarkus reactive',
+    'rabbitmq':   'RabbitMQ dead letter exchange quorum queue DLX',
+    'spring':     'Spring Boot autoconfiguration JPA Security Actuator',
+    'sre':        'SLI SLO error budget golden signals PVH',
+    'tanzu':      'BOSH Diego cf push Cloud Foundry Tanzu',
+    'template':   'Cookiecutter Streamlit uv Kustomize',
+    'test':       'Docker Compose Behave Playwright E2E Oracle',
+}
+
+# Détecter dynamiquement tous les domaines
+domains = sorted([
+    d.name for d in skills_path.iterdir()
+    if d.is_dir() and (d / 'SKILL.md').exists()
+])
+
+print(f'=== Tests RAG — {len(domains)} domaines ===')
+passed = 0
+failed = 0
+for domain in domains:
+    query = DOMAIN_QUERIES.get(domain, f'{domain} documentation')
+    r = search.invoke({'query': query, 'domain': domain, 'top_k': 1})
+    if r.ok and domain in r.content.lower():
+        print(f'  ✓ {domain}')
+        passed += 1
+    else:
+        excerpt = r.content[:80].replace(chr(10), ' ') if r.ok else 'ERROR'
+        print(f'  ✗ {domain} — query: \"{query[:50]}\" → {excerpt}')
+        failed += 1
+
 print()
-print('[OK] Toutes les vérifications passent')
+if failed:
+    print(f'[ECHEC] {passed} passés, {failed} échoués')
+    sys.exit(1)
+print(f'[OK] {passed}/{passed} domaines vérifiés')
 " || exit 1
 
 echo ""
 echo "Prochaines étapes :"
 echo "  mise run agent:coding -- \"tâche\"    L'agent utilisera l'index mis à jour"
 echo "  mise run chat -- coding              Le chat aussi"
-echo "  mise run test:system                 Vérification complète"
