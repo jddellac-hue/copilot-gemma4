@@ -73,27 +73,47 @@ _ensure_skills_index() {
     if [ "$needs_reindex" = true ]; then
         echo "    [i] Reindexation automatique des skills..."
         PYTHONUNBUFFERED=1 "$VENV_PYTHON" -c "
-import sys, os
+import sys, os, time, hashlib
 from pathlib import Path
-sys.path.insert(0, '$HARNESS_DIR/src')
-from harness.tools.skills import SkillsConfig, build_skills_tools
 
-config = SkillsConfig(
-    enabled=True,
-    path=Path('$SKILLS_DIR'),
-    collection_name='agent_skills',
-    persist_dir=Path('$PERSIST_DIR'),
-    chunk_size=800, chunk_overlap=100, max_results=5,
-)
-tools = build_skills_tools(config)
-if tools:
-    import chromadb
-    client = chromadb.PersistentClient(path='$PERSIST_DIR')
-    count = client.get_collection('agent_skills').count()
-    print(f'    [OK] {count} chunks indexés')
-else:
-    print('    [!] Indexation échouée')
-    sys.exit(1)
+sys.path.insert(0, '$HARNESS_DIR/src')
+from harness.tools.runbooks import _split_markdown
+import chromadb
+
+skills_path = Path('$SKILLS_DIR')
+persist_dir = Path('$PERSIST_DIR')
+persist_dir.mkdir(parents=True, exist_ok=True)
+
+client = chromadb.PersistentClient(path=str(persist_dir))
+collection = client.get_or_create_collection(name='agent_skills')
+
+domains = sorted([d.name for d in skills_path.iterdir()
+                  if d.is_dir() and (d / 'SKILL.md').exists()])
+
+t0 = time.time()
+total = 0
+for i, domain in enumerate(domains, 1):
+    n = 0
+    for f in sorted((skills_path / domain).rglob('*.md')):
+        if not f.is_file():
+            continue
+        try:
+            text = f.read_text(encoding='utf-8')
+        except UnicodeDecodeError:
+            continue
+        fh = hashlib.sha256(text.encode('utf-8')).hexdigest()
+        rel = f.relative_to(skills_path).as_posix()
+        for idx, (sec, body) in enumerate(_split_markdown(text, 800, 100)):
+            collection.upsert(
+                ids=[f'{fh}:{idx}'],
+                documents=[body],
+                metadatas=[{'file': rel, 'section': sec, 'domain': domain, 'chunk_index': str(idx)}],
+            )
+            n += 1
+    total += n
+    print(f'    [{i:2d}/{len(domains)}] {domain:<14s} {n:4d} chunks  ({time.time()-t0:.0f}s)', flush=True)
+
+print(f'    [OK] {total} chunks en {time.time()-t0:.0f}s')
 " || {
             echo "    [!] Reindexation échouée — l'agent fonctionnera sans skills RAG"
             return 0
