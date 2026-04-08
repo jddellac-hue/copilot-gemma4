@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Chat interactif avec un modèle Gemma 4 local via Ollama."""
+"""Chat interactif avec un modèle Gemma 4 local via Ollama.
+
+Si chromadb et le harness sont installés, le chat enrichit chaque message
+avec du contexte issu des skills RAG (search_skills). Sinon le chat
+fonctionne normalement sans RAG.
+"""
 
 import json
 import sys
@@ -61,6 +66,66 @@ ROLES = {
         "label": "GENERAL",
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# RAG skills (opt-in, graceful degradation)
+# ---------------------------------------------------------------------------
+_skills_tool = None
+_rag_enabled = False
+
+
+def _init_rag():
+    """Try to load skills RAG. Returns True if available."""
+    global _skills_tool, _rag_enabled
+    try:
+        # Find the repo root (scripts/ is one level below)
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        harness_src = os.path.join(repo_root, "agent-harness", "src")
+        skills_dir = os.path.join(repo_root, "skills")
+
+        if not os.path.isdir(skills_dir):
+            return False
+
+        # Add harness source to path so we can import
+        if harness_src not in sys.path:
+            sys.path.insert(0, harness_src)
+
+        from harness.tools.skills import SkillsConfig, build_skills_tools
+        import tempfile
+
+        config = SkillsConfig(
+            enabled=True,
+            path=__import__("pathlib").Path(skills_dir),
+            collection_name="chat_skills",
+            persist_dir=__import__("pathlib").Path(
+                os.path.expanduser("~/.local/share/agent-harness/chroma")
+            ),
+            chunk_size=800,
+            chunk_overlap=100,
+            max_results=3,
+        )
+        tools = build_skills_tools(config)
+        if tools:
+            _skills_tool = tools[0]
+            _rag_enabled = True
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _search_skills(query):
+    """Search skills and return context string, or empty string."""
+    if not _skills_tool:
+        return ""
+    try:
+        result = _skills_tool.invoke({"query": query, "top_k": 3})
+        if result.ok and "no skill matched" not in result.content:
+            return result.content
+    except Exception:
+        pass
+    return ""
 
 
 def stream_chat(model, messages):
@@ -131,6 +196,7 @@ def unload_other_models(keep_model):
 
 
 def print_help(role_config):
+    rag_status = f"{GREEN}activé{RESET}" if _rag_enabled else f"{DIM}indisponible{RESET}"
     print(f"""
 {BOLD}Commandes :{RESET}
   {YELLOW}/help{RESET}       Afficher cette aide
@@ -138,6 +204,8 @@ def print_help(role_config):
   {YELLOW}/system{RESET}     Voir le prompt système actuel
   {YELLOW}/model{RESET}      Voir le modèle utilisé
   {YELLOW}/stats{RESET}      Voir les stats de la dernière réponse
+  {YELLOW}/rag{RESET}        Activer/désactiver le RAG skills ({rag_status})
+  {YELLOW}/skills{RESET}     Rechercher manuellement dans les skills
   {YELLOW}/save{RESET}       Sauvegarder la conversation dans un fichier
   {YELLOW}/quit{RESET}       Quitter (ou Ctrl+D)
 """)
@@ -189,6 +257,14 @@ def main():
     print(f"{DIM}Libération de la mémoire...{RESET}", end=" ", flush=True)
     unload_other_models(model)
     print(f"{DIM}OK{RESET}")
+
+    # Initialiser le RAG skills
+    global _rag_enabled
+    print(f"{DIM}Skills RAG...{RESET}", end=" ", flush=True)
+    if _init_rag():
+        print(f"{GREEN}activé{RESET} {DIM}(3 chunks par requête, /rag off pour désactiver){RESET}")
+    else:
+        print(f"{DIM}indisponible (chromadb non installé ou skills/ absent){RESET}")
     print()
 
     # Historique de conversation
@@ -227,14 +303,64 @@ def main():
                               f"Temps: {last_stats.get('total_s', 0):.1f}s{RESET}")
                     else:
                         print(f"{DIM}Pas encore de stats.{RESET}")
+                elif cmd == "/rag":
+                    parts = user_input.lower().split()
+                    if len(parts) > 1 and parts[1] in ("on", "off"):
+                        if parts[1] == "on" and _skills_tool:
+                            _rag_enabled = True
+                            print(f"{GREEN}RAG activé{RESET}")
+                        elif parts[1] == "off":
+                            _rag_enabled = False
+                            print(f"{DIM}RAG désactivé{RESET}")
+                        else:
+                            print(f"{RED}RAG indisponible (chromadb non installé){RESET}")
+                    else:
+                        status = f"{GREEN}activé{RESET}" if _rag_enabled else f"{DIM}désactivé{RESET}"
+                        print(f"RAG skills : {status}")
+                        print(f"{DIM}/rag on | /rag off{RESET}")
+                elif cmd == "/skills":
+                    query = user_input[len("/skills"):].strip()
+                    if not query:
+                        print(f"{DIM}Usage : /skills <recherche>{RESET}")
+                        print(f"{DIM}Ex : /skills Kafka consumer strategy{RESET}")
+                    elif _skills_tool:
+                        ctx = _search_skills(query)
+                        if ctx:
+                            print(f"\n{DIM}{ctx}{RESET}\n")
+                        else:
+                            print(f"{DIM}Aucun résultat.{RESET}")
+                    else:
+                        print(f"{RED}RAG indisponible.{RESET}")
                 elif cmd == "/save":
                     save_conversation(messages, role)
                 else:
                     print(f"{DIM}Commande inconnue. /help pour l'aide.{RESET}")
                 continue
 
-            # Ajouter le message utilisateur
-            messages.append({"role": "user", "content": user_input})
+            # RAG : enrichir avec le contexte des skills
+            rag_context = ""
+            if _rag_enabled:
+                rag_context = _search_skills(user_input)
+
+            if rag_context:
+                # Injecter le contexte comme message système temporaire
+                augmented = user_input + (
+                    "\n\n---\n"
+                    "Contexte pertinent issu des skills de référence "
+                    "(utilise ces informations pour enrichir ta réponse) :\n\n"
+                    + rag_context
+                )
+                messages.append({"role": "user", "content": augmented})
+                # Afficher les domaines trouvés
+                domains = set()
+                for line in rag_context.split("\n"):
+                    if line.startswith("--- ["):
+                        d = line.split("[")[1].split("]")[0]
+                        domains.add(d)
+                if domains:
+                    print(f"{DIM}(skills: {', '.join(sorted(domains))}){RESET}")
+            else:
+                messages.append({"role": "user", "content": user_input})
 
             # Réponse du modèle (streaming)
             print(f"\n{BOLD}{color}gemma4 >{RESET} ", end="", flush=True)
