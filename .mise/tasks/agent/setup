@@ -28,8 +28,41 @@ echo "[...] Création du venv..."
 python3 -m venv "$HARNESS_DIR/.venv"
 
 echo "[...] Installation des dépendances..."
-"$HARNESS_DIR/.venv/bin/pip" install --upgrade pip -q
-"$HARNESS_DIR/.venv/bin/pip" install -e "$HARNESS_DIR[dev,rag]" -q
+PIP="$HARNESS_DIR/.venv/bin/pip"
+
+# Upgrade pip + installer les build dependencies
+# Si le registry corporate (Artifactory) ne trouve pas hatchling,
+# on ajoute PyPI public en fallback via --extra-index-url
+"$PIP" install --upgrade pip -q 2>/dev/null || true
+
+# Respecter PIP_EXTRA_INDEX_URL si déjà défini (ex: dans mise.toml)
+PIP_EXTRA="${PIP_EXTRA_INDEX_URL:+--extra-index-url $PIP_EXTRA_INDEX_URL}"
+
+if ! "$PIP" install hatchling $PIP_EXTRA -q 2>/dev/null; then
+    echo "    [!] hatchling introuvable dans le registry configuré"
+    echo "    [!] Ajout de PyPI public en fallback..."
+    PIP_EXTRA="--extra-index-url https://pypi.org/simple/"
+    "$PIP" install hatchling $PIP_EXTRA -q || {
+        echo "[ERREUR] Impossible d'installer hatchling"
+        echo "  Vérifiez votre accès réseau ou configurez pip :"
+        echo "    $PIP config set global.extra-index-url https://pypi.org/simple/"
+        exit 1
+    }
+else
+    PIP_EXTRA=""
+fi
+
+"$PIP" install -e "$HARNESS_DIR[dev,rag]" $PIP_EXTRA -q || {
+    echo "[ERREUR] Échec de l'installation des dépendances"
+    echo ""
+    echo "  Si vous êtes derrière un proxy corporate, essayez :"
+    echo "    export PIP_EXTRA_INDEX_URL=https://pypi.org/simple/"
+    echo "    mise run agent:setup -- --force"
+    echo ""
+    echo "  Ou configurez pip de manière permanente :"
+    echo "    $PIP config set global.extra-index-url https://pypi.org/simple/"
+    exit 1
+}
 
 echo ""
 echo "[OK] agent-harness installé"
