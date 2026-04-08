@@ -15,7 +15,7 @@ GEMMA4_DESC_31b = "31B Dense Q4 (~20 Go RAM, 30.7B actifs, plus capable)"
 # Modèles par défaut pour chat et agent (modifiable via env)
 GEMMA4_CODING_MODEL = "gemma4:26b-a4b-it-q8_0"
 GEMMA4_DOC_MODEL = "gemma4:26b-a4b-it-q8_0"
-GEMMA4_GENERAL_MODEL = "gemma4:26b"
+GEMMA4_GENERAL_MODEL = "gemma4:26b-a4b-it-q8_0"
 # Python venv
 GEMMA4_VENV_DIR = "{{env.HOME}}/venvs/gemma4"
 # Prompt de test par défaut
