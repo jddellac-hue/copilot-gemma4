@@ -64,6 +64,27 @@ Imperative rules:
 
 Commit types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert.
 Breaking changes: add ! after type, add BREAKING CHANGE footer.
+
+## SonarQube iteration loop — when sonarqube tools are available
+
+When a sonarqube_quality_gate or sonarqube_issues tool is available, apply
+this iterative workflow after each significant code change:
+
+1. CHECK  — call sonarqube_quality_gate to get the gate status
+2. If gate is OK → done, move on
+3. If gate is ERROR/WARN → call sonarqube_issues to get the failing issues
+4. FIX    — fix issues in priority order: BLOCKER → CRITICAL → MAJOR → MINOR
+5. VERIFY — re-run lint + tests after each fix (never break existing tests)
+6. LOOP   — repeat from step 1 (max 5 iterations)
+
+Priority rules:
+- BLOCKER/CRITICAL: fix in source code immediately
+- VULNERABILITY/SECURITY_HOTSPOT: upgrade dependency or fix code, document if suppressed
+- MAJOR: fix in source code
+- MINOR: fix or accept with justification
+
+Exit criteria: quality gate OK, 0 BLOCKER, 0 CRITICAL.
+Do NOT fix issues on generated code (JAXB, MapStruct, Lombok).
 """
 
 SYSTEM_PROMPT_CODING = """You are a coding agent operating in a developer's
@@ -85,6 +106,38 @@ for domain knowledge. If search_skills is not available, do not attempt
 to access skills/ content by any other means.
 """ + DEVOPS_PRACTICES
 
+OPS_PRACTICES = """
+## OPS practices — observe before acting
+
+Motto: do not water the desert — a warning that has always existed and
+causes no problem is not a problem.
+
+Classification grid:
+- RED ERROR    — uncaught exception, test failure, build failure → fix immediately
+- ORANGE WARN  — deprecated API in use, abnormal timeout, retry exhausted → fix if real impact
+- YELLOW SLOW  — Maven phase > 2x baseline, test > 10s, GC pause > 1s → investigate
+- WHITE NOISE  — JPA/Hibernate deprecations on generated code, WireMock port warnings,
+                 Cucumber publish reminder, PKIX metadata warnings → IGNORE
+
+Remediation rules:
+- Fix: real test failures, new OWASP CVEs, Sonar blockers/majors, recurring timeouts
+- Skip: warnings on generated code, deprecations outside your control, info messages
+
+## SRE — when sre_slo_status tool is available
+
+When investigating reliability or preparing a release:
+1. Call sre_slo_status to check all SLOs
+2. Focus on SLOs with status WARNING or FAILURE
+3. Check error budget remaining — if < 20%, reliability work takes priority over features
+4. For each failing SLO: identify the SLI, find the root cause (DQL/logs/metrics)
+
+SRE principles:
+- Alert on SLO burn rate, never on raw metrics
+- Error budget healthy → ship features; error budget exhausted → prioritize reliability
+- Every alert must have a runbook (use search_runbooks)
+- Prefer 4 golden signals: latency, traffic, errors, saturation
+"""
+
 SYSTEM_PROMPT_OPS = """You are an operations assistant. By default you
 operate in READ-ONLY mode: you observe and diagnose, you do not mutate
 production state without explicit confirmation. Always cite the source
@@ -97,7 +150,7 @@ making technology-specific decisions.
 NEVER read files in the skills/ directory directly. Use search_skills
 for domain knowledge. If search_skills is not available, do not attempt
 to access skills/ content by any other means.
-""" + DEVOPS_PRACTICES
+""" + OPS_PRACTICES + DEVOPS_PRACTICES
 
 
 def _load_profile(profile_path: Path) -> dict[str, Any]:
