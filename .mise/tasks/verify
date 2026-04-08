@@ -314,6 +314,24 @@ step "8/8 — Eval smoke test"
 
 EVAL_PROVIDER="${1:-}"
 
+_run_eval() {
+    local PROFILE="$1"
+    cd "$HARNESS_DIR"
+    local TMPLOG
+    TMPLOG=$(mktemp)
+    # PYTHONUNBUFFERED + tee : affichage temps réel + capture
+    PYTHONUNBUFFERED=1 PYTHONPATH=. .venv/bin/harness eval --profile "$PROFILE" 2>&1 | tee "$TMPLOG"
+    local EXIT=${PIPESTATUS[0]}
+    EVAL_TOTAL=$(grep "total:" "$TMPLOG" | head -1)
+    rm -f "$TMPLOG"
+    cd "$REPO_DIR"
+    if [ $EXIT -eq 0 ]; then
+        ok "Eval : $EVAL_TOTAL"
+    else
+        fail "Eval : $EVAL_TOTAL"
+    fi
+}
+
 if [ -n "$EVAL_PROVIDER" ]; then
     info "Lancement de l'eval ($EVAL_PROVIDER)..."
     case "$EVAL_PROVIDER" in
@@ -321,57 +339,21 @@ if [ -n "$EVAL_PROVIDER" ]; then
             if [ "$OLLAMA_OK" != true ]; then
                 skip "Eval gemma4 (Ollama hors ligne)"
             else
-                cd "$HARNESS_DIR"
-                EVAL_OUTPUT=$(PYTHONPATH=. .venv/bin/harness eval --profile config/profiles/ci-gemma4.yaml 2>&1)
-                EVAL_EXIT=$?
-                echo "$EVAL_OUTPUT" | grep -E "^\s+(✓|✗)" | while read -r line; do
-                    echo "    $line"
-                done
-                EVAL_TOTAL=$(echo "$EVAL_OUTPUT" | grep "total:" | head -1)
-                if [ $EVAL_EXIT -eq 0 ]; then
-                    ok "Eval : $EVAL_TOTAL"
-                else
-                    fail "Eval : $EVAL_TOTAL"
-                fi
-                cd "$REPO_DIR"
+                _run_eval "config/profiles/ci-gemma4.yaml"
             fi
             ;;
         claude)
             if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
                 skip "Eval claude (ANTHROPIC_API_KEY manquante)"
             else
-                cd "$HARNESS_DIR"
-                EVAL_OUTPUT=$(PYTHONPATH=. .venv/bin/harness eval --profile config/profiles/ci-claude.yaml 2>&1)
-                EVAL_EXIT=$?
-                echo "$EVAL_OUTPUT" | grep -E "^\s+(✓|✗)" | while read -r line; do
-                    echo "    $line"
-                done
-                EVAL_TOTAL=$(echo "$EVAL_OUTPUT" | grep "total:" | head -1)
-                if [ $EVAL_EXIT -eq 0 ]; then
-                    ok "Eval : $EVAL_TOTAL"
-                else
-                    fail "Eval : $EVAL_TOTAL"
-                fi
-                cd "$REPO_DIR"
+                _run_eval "config/profiles/ci-claude.yaml"
             fi
             ;;
         copilot)
             if [ -z "${GITHUB_TOKEN:-}" ]; then
                 skip "Eval copilot (GITHUB_TOKEN manquant)"
             else
-                cd "$HARNESS_DIR"
-                EVAL_OUTPUT=$(PYTHONPATH=. .venv/bin/harness eval --profile config/profiles/ci-copilot.yaml 2>&1)
-                EVAL_EXIT=$?
-                echo "$EVAL_OUTPUT" | grep -E "^\s+(✓|✗)" | while read -r line; do
-                    echo "    $line"
-                done
-                EVAL_TOTAL=$(echo "$EVAL_OUTPUT" | grep "total:" | head -1)
-                if [ $EVAL_EXIT -eq 0 ]; then
-                    ok "Eval : $EVAL_TOTAL"
-                else
-                    fail "Eval : $EVAL_TOTAL"
-                fi
-                cd "$REPO_DIR"
+                _run_eval "config/profiles/ci-copilot.yaml"
             fi
             ;;
         *)

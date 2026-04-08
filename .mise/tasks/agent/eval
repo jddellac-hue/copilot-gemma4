@@ -85,4 +85,4 @@ echo "Profil : $PROFILE"
 echo ""
 
 cd "$HARNESS_DIR"
-PYTHONPATH=. exec .venv/bin/harness eval --profile "$PROFILE"
+PYTHONUNBUFFERED=1 PYTHONPATH=. exec .venv/bin/harness eval --profile "$PROFILE"
