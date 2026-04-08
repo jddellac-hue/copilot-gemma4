@@ -29,6 +29,7 @@ from harness.tools.bash import build_bash_tool
 from harness.tools.concourse import ConcourseConfig, build_concourse_tools
 from harness.tools.dynatrace import DynatraceConfig, build_dynatrace_tools
 from harness.tools.filesystem import build_filesystem_tools
+from harness.tools.jacoco import build_jacoco_tool
 from harness.tools.kubernetes import KubernetesConfig, build_kubernetes_tools
 from harness.tools.rabbitmq import RabbitMQConfig, build_rabbitmq_tools
 from harness.tools.runbooks import RunbooksConfig, build_runbooks_tools
@@ -85,6 +86,23 @@ Priority rules:
 
 Exit criteria: quality gate OK, 0 BLOCKER, 0 CRITICAL.
 Do NOT fix issues on generated code (JAXB, MapStruct, Lombok).
+
+## Java testing — when jacoco_coverage tool is available
+
+When writing or improving Java tests:
+1. Call jacoco_coverage to identify classes with most missed branches
+2. Write tests targeting those classes first (highest impact)
+3. Re-run `mvn verify -Pjacoco -DskipITs` via bash, then call jacoco_coverage again
+4. Iterate until coverage meets the threshold configured in pom.xml
+
+Conventions:
+- JUnit 5 + AssertJ + Mockito — never JUnit 4
+- @DisplayName on every test (in French), @Nested by method under test
+- @Tag("unit") or @Tag("integration") on every test class
+- Minimum 2 meaningful assertions per test
+- Never modify production code (src/main/java) when writing tests
+- Never delete an existing passing test
+- Exclude generated code (JAXB, MapStruct, Lombok) from coverage
 """
 
 SYSTEM_PROMPT_CODING = """You are a coding agent operating in a developer's
@@ -205,6 +223,7 @@ def _build_agent(profile: dict[str, Any], workspace: Path) -> Agent:
     tools = ToolRegistry()
     tools.register_many(build_filesystem_tools(workspace))
     tools.register(build_bash_tool(sandbox, workspace))
+    tools.register(build_jacoco_tool(workspace))
 
     # Optional ops tools — wired only when enabled in the profile
     ops_tools_cfg = profile.get("ops_tools", {})

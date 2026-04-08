@@ -60,7 +60,8 @@ src/harness/
     ├── skills.py         # Chroma RAG over domain skill docs
     ├── concourse.py      # concourse_pipelines/builds/build_logs
     ├── sonarqube.py      # sonarqube_quality_gate/issues
-    └── rabbitmq.py       # rabbitmq_overview
+    ├── rabbitmq.py       # rabbitmq_overview
+    └── jacoco.py         # jacoco_coverage (parse XML reports)
 
 config/profiles/          # 11 profiles: dev, ci(4), gemma4(2), claude, copilot, ops(+sonar+rmq), prod-ro
 eval/tasks/               # 7 reproducible eval tasks (YAML)
@@ -79,7 +80,7 @@ python3 -m venv --without-pip .venv
 curl -sS https://bootstrap.pypa.io/get-pip.py | .venv/bin/python3
 .venv/bin/pip install -e ".[dev,anthropic,openai]"
 
-# Run unit tests — should report "90 passed"
+# Run unit tests — should report "96 passed"
 pytest tests/ -q
 
 # Lint + type check (required before committing)
