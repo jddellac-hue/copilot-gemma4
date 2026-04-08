@@ -407,8 +407,8 @@ if [ -d "$SKILLS_DIR" ]; then
     SKILL_COUNT=$(find "$SKILLS_DIR" -mindepth 1 -maxdepth 1 -type d | wc -l)
     ok "Dossier skills/ présent ($SKILL_COUNT domaines)"
 
-    # Vérifier que les 10 domaines attendus sont là
-    EXPECTED_DOMAINS="angular base concourse devops dynatrace kubernetes oracle quarkus template test"
+    # Vérifier que tous les domaines attendus sont là
+    EXPECTED_DOMAINS="angular base concourse devops dsn dynatrace java kubernetes mermaid mise oracle quarkus sre template test"
     ALL_PRESENT=true
     for domain in $EXPECTED_DOMAINS; do
         if [ -d "$SKILLS_DIR/$domain" ] && [ -f "$SKILLS_DIR/$domain/SKILL.md" ]; then
@@ -423,7 +423,7 @@ if [ -d "$SKILLS_DIR" ]; then
     if [ -f "$VENV/bin/python3" ] && "$VENV/bin/python3" -c "import chromadb" 2>/dev/null; then
         ok "chromadb installé"
 
-        info "Indexation + recherche de vérification..."
+        info "Indexation + recherche de vérification (tous les domaines)..."
         RAG_OUTPUT=$("$VENV/bin/python3" -c "
 import sys, tempfile, json
 from pathlib import Path
@@ -447,49 +447,48 @@ if not tools:
 
 search = tools[0]
 
-# Test 1 : recherche Kafka → doit trouver quarkus
-r1 = search.invoke({'query': 'Kafka acknowledgment strategy', 'domain': 'quarkus'})
-# Test 2 : recherche CrashLoopBackOff → doit trouver kubernetes
-r2 = search.invoke({'query': 'pod CrashLoopBackOff diagnostic', 'domain': 'kubernetes'})
-# Test 3 : recherche DQL → doit trouver dynatrace
-r3 = search.invoke({'query': 'DQL fetch filter tags', 'domain': 'dynatrace'})
+# Requêtes de vérification couvrant tous les domaines
+tests = [
+    ('Angular Jest unit tests',           'angular'),
+    ('Oracle Flyway migration schemas',   'base'),
+    ('Concourse pipeline jobs',           'concourse'),
+    ('conventional commits semantic',     'devops'),
+    ('DSN fragment unicité N4DS',         'dsn'),
+    ('DQL fetch filter tags',             'dynatrace'),
+    ('JUnit 5 DisplayName AssertJ',       'java'),
+    ('pod CrashLoopBackOff diagnostic',   'kubernetes'),
+    ('Mermaid sequence diagram',          'mermaid'),
+    ('mise task shebang pipefail',        'mise'),
+    ('CDB PDB ARCHIVELOG GoldenGate',     'oracle'),
+    ('Kafka acknowledgment strategy',     'quarkus'),
+    ('SLI SLO error budget golden',       'sre'),
+    ('Cookiecutter Streamlit uv',         'template'),
+    ('Docker Compose Behave Playwright',  'test'),
+]
 
-print(json.dumps({
-    'chunks': search.invoke({'query': 'test'}).metadata.get('matches', 0),
-    'kafka_ok': r1.ok and 'quarkus' in r1.content.lower(),
-    'k8s_ok': r2.ok and 'kubernetes' in r2.content.lower(),
-    'dql_ok': r3.ok and 'dynatrace' in r3.content.lower(),
-    'kafka_excerpt': r1.content[:80] if r1.ok else r1.content,
-    'k8s_excerpt': r2.content[:80] if r2.ok else r2.content,
-    'dql_excerpt': r3.content[:80] if r3.ok else r3.content,
-}))
+results = {}
+for query, domain in tests:
+    r = search.invoke({'query': query, 'domain': domain, 'top_k': 1})
+    results[domain] = r.ok and domain in r.content.lower()
 
 # Cleanup
 import shutil
 shutil.rmtree(persist, ignore_errors=True)
+
+print(json.dumps(results))
 " 2>&1) || {
             fail "Erreur lors du test RAG"
             detail "$RAG_OUTPUT"
         }
 
-        if echo "$RAG_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('kafka_ok') else 1)" 2>/dev/null; then
-            ok "Recherche 'Kafka ack strategy' → domaine quarkus trouvé"
-        else
-            fail "Recherche 'Kafka ack strategy' n'a pas trouvé le domaine quarkus"
-            detail "$RAG_OUTPUT"
-        fi
-
-        if echo "$RAG_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('k8s_ok') else 1)" 2>/dev/null; then
-            ok "Recherche 'CrashLoopBackOff' → domaine kubernetes trouvé"
-        else
-            fail "Recherche 'CrashLoopBackOff' n'a pas trouvé le domaine kubernetes"
-        fi
-
-        if echo "$RAG_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('dql_ok') else 1)" 2>/dev/null; then
-            ok "Recherche 'DQL fetch filter' → domaine dynatrace trouvé"
-        else
-            fail "Recherche 'DQL fetch filter' n'a pas trouvé le domaine dynatrace"
-        fi
+        # Vérifier chaque domaine
+        for domain in $EXPECTED_DOMAINS; do
+            if echo "$RAG_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('$domain') else 1)" 2>/dev/null; then
+                ok "RAG '$domain' → résultat pertinent"
+            else
+                fail "RAG '$domain' → pas de résultat pertinent"
+            fi
+        done
     else
         skip "chromadb non installé — test RAG ignoré"
     fi

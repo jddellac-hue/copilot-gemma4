@@ -2,7 +2,7 @@
 
 Déploiement local de modèles [Gemma 4](https://blog.google/innovation-and-ai/technology/developers-tools/gemma-4/) (Google DeepMind) via [mise](https://mise.jdx.dev/) tasks, avec chat interactif et agents autonomes.
 
-**25 tasks mise** : gestion de modèles, benchmarks, chat streaming, agents avec tool calling et RAG skills (via [agent-harness](agent-harness/)), TUI de suivi.
+**26 tasks mise** : gestion de modèles, benchmarks, chat streaming, agents avec tool calling et RAG skills (via [agent-harness](agent-harness/)), TUI de suivi.
 
 ## Installation
 
@@ -428,6 +428,7 @@ test:system        Tests système end-to-end
 test:tasks         Tests unitaires des tasks mise
 tui:bench          TUI suivi benchmark en direct
 tui:install        TUI suivi modèles et téléchargements
+skills:reindex     Reconstruire la base vectorielle Chroma (après ajout de skills)
 verify             Vérification complète (prérequis, install, tests, eval)
 clean              Nettoyage profond (tout supprimer)
 ```

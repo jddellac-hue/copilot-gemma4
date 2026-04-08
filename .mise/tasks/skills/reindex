@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+#MISE description="Reconstruire la base vectorielle Chroma à partir de skills/"
+set -euo pipefail
+
+REPO_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+HARNESS_DIR="$REPO_DIR/agent-harness"
+SKILLS_DIR="$REPO_DIR/skills"
+VENV="$HARNESS_DIR/.venv"
+
+if [ ! -f "$VENV/bin/python3" ]; then
+    echo "[ERREUR] agent-harness non installé"
+    echo "  → mise run agent:setup"
+    exit 1
+fi
+
+if ! "$VENV/bin/python3" -c "import chromadb" 2>/dev/null; then
+    echo "[ERREUR] chromadb non installé"
+    echo "  → $VENV/bin/pip install agent-harness[rag]"
+    exit 1
+fi
+
+FORCE="${1:-}"
+PERSIST_DIR="$HOME/.local/share/agent-harness/chroma"
+
+if [ "$FORCE" = "--force" ]; then
+    echo "[...] Suppression de l'ancien index..."
+    rm -rf "$PERSIST_DIR/agent_skills" "$PERSIST_DIR/chat_skills" 2>/dev/null || true
+fi
+
+echo "=== Reconstruction de la base vectorielle ==="
+echo "Skills    : $SKILLS_DIR"
+echo "Chroma    : $PERSIST_DIR"
+echo ""
+
+# Compter les domaines et fichiers
+DOMAIN_COUNT=$(find "$SKILLS_DIR" -mindepth 1 -maxdepth 1 -type d | wc -l)
+FILE_COUNT=$(find "$SKILLS_DIR" -name "*.md" -type f | wc -l)
+echo "Domaines  : $DOMAIN_COUNT"
+echo "Fichiers  : $FILE_COUNT"
+echo ""
+
+"$VENV/bin/python3" -c "
+import sys, json
+from pathlib import Path
+
+sys.path.insert(0, '$HARNESS_DIR/src')
+from harness.tools.skills import SkillsConfig, build_skills_tools
+
+config = SkillsConfig(
+    enabled=True,
+    path=Path('$SKILLS_DIR'),
+    collection_name='agent_skills',
+    persist_dir=Path('$PERSIST_DIR'),
+    chunk_size=800,
+    chunk_overlap=100,
+    max_results=5,
+)
+tools = build_skills_tools(config)
+if not tools:
+    print('[ERREUR] build_skills_tools a retourné une liste vide')
+    sys.exit(1)
+
+# Vérification : 3 requêtes de test
+search = tools[0]
+tests = [
+    ('Kafka acknowledgment strategy', 'quarkus'),
+    ('pod CrashLoopBackOff', 'kubernetes'),
+    ('DQL fetch filter tags', 'dynatrace'),
+]
+
+print('[OK] Index reconstruit')
+print()
+print('=== Vérification ===')
+all_ok = True
+for query, expected_domain in tests:
+    r = search.invoke({'query': query, 'domain': expected_domain, 'top_k': 1})
+    if r.ok and expected_domain in r.content.lower():
+        print(f'  ✓ \"{query}\" → {expected_domain}')
+    else:
+        print(f'  ✗ \"{query}\" → attendu {expected_domain}, obtenu: {r.content[:60]}')
+        all_ok = False
+
+if not all_ok:
+    sys.exit(1)
+print()
+print('[OK] Toutes les vérifications passent')
+" || exit 1
+
+echo ""
+echo "Prochaines étapes :"
+echo "  mise run agent:coding -- \"tâche\"    L'agent utilisera l'index mis à jour"
+echo "  mise run chat -- coding              Le chat aussi"
+echo "  mise run test:system                 Vérification complète"

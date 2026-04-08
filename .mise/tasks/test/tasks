@@ -28,7 +28,7 @@ HARNESS_DIR="$REPO_DIR/agent-harness"
 
 echo -e "${BOLD}"
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║         Tests unitaires des tasks mise (25 tasks)           ║"
+echo "║         Tests unitaires des tasks mise (26 tasks)           ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -47,6 +47,7 @@ EXPECTED_TASKS=(
     "agent/mcp"
     "agent/serve"
     "chat"
+    "skills/reindex"
     "model/install"
     "model/uninstall"
     "model/list"
