@@ -147,7 +147,7 @@ def _build_agent(profile: dict[str, Any], workspace: Path) -> Agent:
     if ops_tools_cfg.get("skills", {}).get("enabled"):
         tools.register_many(
             build_skills_tools(
-                SkillsConfig.from_dict(ops_tools_cfg["skills"])
+                SkillsConfig.from_dict(ops_tools_cfg["skills"], base_dir=workspace)
             )
         )
 

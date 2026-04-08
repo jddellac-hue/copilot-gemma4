@@ -96,7 +96,7 @@ ops_tools:
   # ---- Domain skills (RAG over skill documentation) ----------------------
   skills:
     enabled: true
-    path: ~/pseudo-copilot/skills
+    path: skills
     collection_name: agent_skills
     persist_dir: ~/.local/share/agent-harness/chroma
     chunk_size: 800

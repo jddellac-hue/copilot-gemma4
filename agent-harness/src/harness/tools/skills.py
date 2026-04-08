@@ -32,7 +32,7 @@ Configuration::
     ops_tools:
       skills:
         enabled: true
-        path: ~/pseudo-copilot/skills
+        path: skills                    # relative to workspace
         collection_name: agent_skills
         persist_dir: ~/.local/share/agent-harness/chroma
         chunk_size: 800
@@ -64,10 +64,14 @@ class SkillsConfig:
     max_results: int = 5
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> SkillsConfig:
+    def from_dict(cls, data: dict[str, Any], base_dir: Path | None = None) -> SkillsConfig:
+        raw_path = Path(data.get("path", "")).expanduser()
+        # Resolve relative paths against the provided base directory
+        if base_dir and not raw_path.is_absolute():
+            raw_path = base_dir / raw_path
         return cls(
             enabled=data.get("enabled", False),
-            path=Path(data.get("path", "")).expanduser(),
+            path=raw_path,
             collection_name=data.get("collection_name", "agent_skills"),
             persist_dir=Path(
                 data.get(
