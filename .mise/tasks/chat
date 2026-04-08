@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+#MISE description="Chat interactif (ex: mise run chat -- coding|doc|general)"
+set -euo pipefail
+
+ROLE="${1:-}"
+REPO_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
+case "$ROLE" in
+    coding)  MODEL="${GEMMA4_CODING_MODEL:-gemma4:26b-a4b-it-q8_0}" ;;
+    doc)     MODEL="${GEMMA4_DOC_MODEL:-gemma4:26b-a4b-it-q8_0}" ;;
+    general) MODEL="${GEMMA4_GENERAL_MODEL:-gemma4:26b}" ;;
+    *)
+        echo "Usage: mise run chat -- <coding|doc|general>"
+        echo ""
+        echo "  coding   Code generation (gemma4:26b-a4b-it-q8_0)"
+        echo "  doc      Documentation (gemma4:26b-a4b-it-q8_0)"
+        echo "  general  General purpose (gemma4:26b)"
+        exit 1
+        ;;
+esac
+
+source "$REPO_DIR/scripts/ensure-model.sh"
+_ensure_model "$MODEL" || exit 1
+
+exec python3 "$REPO_DIR/scripts/chat.py" "$ROLE"

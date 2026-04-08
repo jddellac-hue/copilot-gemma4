@@ -2,7 +2,7 @@
 
 Déploiement local de modèles [Gemma 4](https://blog.google/innovation-and-ai/technology/developers-tools/gemma-4/) (Google DeepMind) via [mise](https://mise.jdx.dev/) tasks, avec chat interactif et agents autonomes.
 
-**20 tasks mise** : gestion de modèles, benchmarks, chat streaming, agents avec tool calling (via [agent-harness](agent-harness/)), TUI de suivi.
+**25 tasks mise** : gestion de modèles, benchmarks, chat streaming, agents avec tool calling et RAG skills (via [agent-harness](agent-harness/)), TUI de suivi.
 
 ## Installation
 
@@ -41,7 +41,7 @@ mise run model:install -- gemma4:26b-a4b-it-q8_0
 mise run agent:setup
 
 # 7. Tester
-mise run chat:general
+mise run chat -- general
 ```
 
 ## Tasks disponibles
@@ -154,19 +154,19 @@ mise run model:stop
 
 ---
 
-### chat:coding / chat:doc / chat:general — Chat interactif
+### chat — Chat interactif
 
-Conversation multi-turn en streaming avec Gemma 4. Chaque chat a un rôle et un system prompt dédié.
+Conversation multi-turn en streaming avec Gemma 4. Un seul point d'entrée avec rôle en paramètre.
 
 ```bash
 # Chat agent de code (26B MoE Q8, temp 0.2, orienté code)
-mise run chat:coding
+mise run chat -- coding
 
 # Chat agent de documentation (26B MoE Q8, temp 0.3, orienté rédaction)
-mise run chat:doc
+mise run chat -- doc
 
 # Chat général (26B Q4, rapide, polyvalent)
-mise run chat:general
+mise run chat -- general
 ```
 
 Commandes disponibles dans le chat :
@@ -210,7 +210,7 @@ mise run agent:coding -- "Refactorise le code" /chemin/vers/projet
 
 Différence chat vs agent :
 
-| | `chat:*` | `agent:*` |
+| | `chat` | `agent:*` |
 |---|---|---|
 | Mode | Conversation interactive | Tâche one-shot |
 | Outils | Aucun (texte pur) | Fichiers, bash, recherche |
@@ -329,7 +329,7 @@ GEMMA4_GENERAL_MODEL = "gemma4:26b"
 
 Pour changer ponctuellement :
 ```bash
-GEMMA4_CODING_MODEL=gemma4:e4b mise run chat:coding
+GEMMA4_CODING_MODEL=gemma4:e4b mise run chat -- coding
 ```
 
 Pour changer durablement : éditer `mise.toml`.
@@ -381,16 +381,20 @@ copilot-gemma4/
 │   └── tasks/
 │       ├── prereqs/install|uninstall  # Prérequis système
 │       ├── model/                     # evaluate|install|uninstall|list|start|stop
-│       ├── test/bench|verify          # Benchmarks et vérifications
+│       ├── test/                      # bench|verify|tasks|system
 │       ├── tui/bench|install          # Interfaces TUI
-│       ├── chat/coding|doc|general    # Chat interactif
-│       ├── agent/                     # coding|doc|mcp|eval|setup
+│       ├── chat                       # Chat interactif (coding|doc|general)
+│       ├── agent/                     # coding|doc|claude|copilot|mcp|serve|eval|setup
+│       ├── verify                     # Vérification complète
 │       └── clean                      # Nettoyage profond
+├── scripts/
+│   ├── chat.py                        # Chat interactif streaming
+│   ├── ensure-model.sh                # Vérif auto ollama + modèle + preload
+│   └── harness-run.sh                 # Helper commun pour les tasks agent
+├── skills/                            # 10 skills RAG (angular, oracle, quarkus, k8s...)
 └── agent-harness/                     # Harness agentique
-    ├── config/profiles/
-    │   ├── gemma4-coding.yaml         # Profil coding (temp 0.2, bash ask)
-    │   └── gemma4-doc.yaml            # Profil doc (temp 0.3, write allow, bash deny)
-    ├── src/harness/                   # Agent ReAct, tools, permissions, sandbox
+    ├── config/profiles/               # 11 profils (dev, ci, coding, ops, claude, copilot...)
+    ├── src/harness/                   # Agent ReAct, tools, permissions, sandbox, skills RAG
     ├── eval/tasks/                    # 7 tâches d'évaluation
     └── .venv/                         # (gitignored, créé via agent:setup)
 ```
@@ -406,17 +410,21 @@ model:uninstall    Désinstaller un modèle
 model:list         Lister les modèles installés
 model:start        Démarrer/précharger un modèle en mémoire
 model:stop         Décharger un modèle de la mémoire
-chat:coding        Chat interactif agent coding
-chat:doc           Chat interactif agent documentation
-chat:general       Chat interactif agent général
-agent:coding       Agent coding avec tools (harness)
-agent:doc          Agent documentation avec tools (harness)
+chat               Chat interactif (coding|doc|general)
+agent:coding       Agent coding avec tools + skills RAG (Gemma 4 local)
+agent:doc          Agent documentation avec tools + skills RAG (Gemma 4 local)
+agent:claude       Agent coding (Claude Sonnet, en ligne)
+agent:copilot      Agent coding (GitHub Copilot, en ligne)
 agent:mcp          Serveur MCP pour IDE
-agent:eval         Suite d'évaluation du harness
+agent:serve        Serveur OpenAI-compatible pour IntelliJ/Continue.dev
+agent:eval         Suite d'évaluation du harness (7 tâches)
 agent:setup        Installer le venv agent-harness
 test:bench         Benchmarker un modèle (coding/doc/all)
 test:verify        Vérifier qu'un modèle fonctionne
+test:system        Tests système end-to-end
+test:tasks         Tests unitaires des tasks mise
 tui:bench          TUI suivi benchmark en direct
 tui:install        TUI suivi modèles et téléchargements
+verify             Vérification complète (prérequis, install, tests, eval)
 clean              Nettoyage profond (tout supprimer)
 ```

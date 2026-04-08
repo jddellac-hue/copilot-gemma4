@@ -19,3 +19,4 @@ Thumbs.db
 
 # Ollama data (local only)
 models/
+agent-harness/eval/report.json

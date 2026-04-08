@@ -28,7 +28,7 @@ HARNESS_DIR="$REPO_DIR/agent-harness"
 
 echo -e "${BOLD}"
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║         Tests unitaires des tasks mise (24 tasks)           ║"
+echo "║         Tests unitaires des tasks mise (25 tasks)           ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -45,9 +45,8 @@ EXPECTED_TASKS=(
     "agent/copilot"
     "agent/eval"
     "agent/mcp"
-    "chat/coding"
-    "chat/doc"
-    "chat/general"
+    "agent/serve"
+    "chat"
     "model/install"
     "model/uninstall"
     "model/list"
@@ -132,7 +131,7 @@ for task in "${TASKS_WITH_USAGE[@]}"; do
     if echo "$OUTPUT" | grep -qi "usage"; then
         ok "$task affiche un message d'usage"
         # Vérifier qu'il mentionne aussi les alternatives
-        if echo "$OUTPUT" | grep -qiE "autres|prochaines|disponibles|évaluations"; then
+        if echo "$OUTPUT" | grep -qiE "autres|prochaines|disponibles|évaluations|prérequis"; then
             ok "$task guide vers les commandes suivantes"
         else
             fail "$task ne guide pas vers les commandes suivantes"
@@ -150,6 +149,7 @@ section "5/6 — Scripts de support"
 EXPECTED_SCRIPTS=(
     "scripts/ensure-model.sh"
     "scripts/chat.py"
+    "scripts/harness-run.sh"
 )
 
 for script in "${EXPECTED_SCRIPTS[@]}"; do
@@ -177,19 +177,24 @@ section "6/6 — Cohérence profils et tasks"
 
 PROFILES_DIR="$HARNESS_DIR/config/profiles"
 
-# Chaque task agent doit référencer un profil qui existe
-for task in agent/coding agent/doc agent/claude agent/copilot; do
-    TASK_FILE="$TASKS_DIR/$task"
-    [ -f "$TASK_FILE" ] || continue
-    PROFILE_REF=$(grep -oP 'PROFILE=.*profiles/\K[^"]+' "$TASK_FILE" 2>/dev/null | head -1)
-    if [ -n "$PROFILE_REF" ] && [ -f "$PROFILES_DIR/$PROFILE_REF" ]; then
-        ok "$task → $PROFILE_REF (existe)"
-    elif [ -n "$PROFILE_REF" ]; then
-        fail "$task → $PROFILE_REF (profil manquant !)"
-    else
-        fail "$task : impossible d'extraire le profil référencé"
-    fi
-done
+# Chaque task agent doit appeler harness_run avec un profil valide
+# Le mapping profil→fichier est dans scripts/harness-run.sh
+HARNESS_RUN="$REPO_DIR/scripts/harness-run.sh"
+if [ -f "$HARNESS_RUN" ]; then
+    ok "scripts/harness-run.sh existe"
+    for profile_name in coding doc claude copilot; do
+        PROFILE_FILE=$(grep "${profile_name})" "$HARNESS_RUN" | grep -oP 'profiles/\K[^"]+' | head -1)
+        if [ -n "$PROFILE_FILE" ] && [ -f "$PROFILES_DIR/$PROFILE_FILE" ]; then
+            ok "harness-run $profile_name → $PROFILE_FILE (existe)"
+        elif [ -n "$PROFILE_FILE" ]; then
+            fail "harness-run $profile_name → $PROFILE_FILE (profil manquant !)"
+        else
+            fail "harness-run $profile_name : mapping introuvable"
+        fi
+    done
+else
+    fail "scripts/harness-run.sh manquant"
+fi
 
 # Chaque profil doit avoir un provider valide
 for profile in "$PROFILES_DIR"/*.yaml; do
