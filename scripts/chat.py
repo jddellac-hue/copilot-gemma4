@@ -73,11 +73,12 @@ ROLES = {
 # ---------------------------------------------------------------------------
 _skills_tool = None
 _rag_enabled = False
+_skill_domains = []  # populated by _init_rag
 
 
 def _init_rag():
     """Try to load skills RAG. Returns True if available."""
-    global _skills_tool, _rag_enabled
+    global _skills_tool, _rag_enabled, _skill_domains
     try:
         # Find the repo root (scripts/ is one level below)
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -92,7 +93,6 @@ def _init_rag():
             sys.path.insert(0, harness_src)
 
         from harness.tools.skills import SkillsConfig, build_skills_tools
-        import tempfile
 
         config = SkillsConfig(
             enabled=True,
@@ -109,6 +109,12 @@ def _init_rag():
         if tools:
             _skills_tool = tools[0]
             _rag_enabled = True
+            # Collect domain names for keyword matching
+            _skill_domains = sorted([
+                d for d in os.listdir(skills_dir)
+                if os.path.isdir(os.path.join(skills_dir, d))
+                and os.path.isfile(os.path.join(skills_dir, d, "SKILL.md"))
+            ])
             return True
     except Exception:
         pass
@@ -116,13 +122,43 @@ def _init_rag():
 
 
 def _search_skills(query):
-    """Search skills and return context string, or empty string."""
+    """Search skills and return context string, or empty string.
+
+    Two-pass strategy:
+    1. Detect domain names mentioned in the query → targeted search per domain
+    2. General search across all domains to fill remaining slots
+    Dedup by chunk content.
+    """
     if not _skills_tool:
         return ""
     try:
-        result = _skills_tool.invoke({"query": query, "top_k": 5})
-        if result.ok and "no skill matched" not in result.content:
-            return result.content
+        results = []
+        seen = set()
+        query_lower = query.lower()
+
+        # Pass 1: targeted search for explicitly mentioned domains
+        for domain in _skill_domains:
+            if domain in query_lower:
+                r = _skills_tool.invoke({"query": query, "domain": domain, "top_k": 2})
+                if r.ok and "no skill matched" not in r.content:
+                    for chunk in r.content.split("\n\n--- ["):
+                        if chunk not in seen:
+                            seen.add(chunk)
+                            results.append(chunk if chunk.startswith("--- [") else "--- [" + chunk)
+
+        # Pass 2: general search to fill up to 5 results
+        remaining = 5 - len(results)
+        if remaining > 0:
+            r = _skills_tool.invoke({"query": query, "top_k": remaining + 2})
+            if r.ok and "no skill matched" not in r.content:
+                for chunk in r.content.split("\n\n--- ["):
+                    clean = chunk if chunk.startswith("--- [") else "--- [" + chunk
+                    if clean not in seen and len(results) < 5:
+                        seen.add(clean)
+                        results.append(clean)
+
+        if results:
+            return "\n\n".join(results)
     except Exception:
         pass
     return ""
