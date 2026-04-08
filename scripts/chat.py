@@ -264,7 +264,9 @@ def main():
     if _init_rag():
         print(f"{GREEN}activé{RESET} {DIM}(3 chunks par requête, /rag off pour désactiver){RESET}")
     else:
-        print(f"{DIM}indisponible (chromadb non installé ou skills/ absent){RESET}")
+        print(f"{RED}désactivé{RESET}")
+        print(f"  {YELLOW}→ chromadb non installé. Installez avec : mise run agent:setup -- --force{RESET}")
+        print(f"  {DIM}Le chat fonctionne sans RAG mais sans expertise domaine.{RESET}")
     print()
 
     # Historique de conversation

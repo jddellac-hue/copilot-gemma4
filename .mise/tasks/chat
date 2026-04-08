@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROLE="${1:-}"
-REPO_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+REPO_DIR="${MISE_PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 
 case "$ROLE" in
     coding)  MODEL="${GEMMA4_CODING_MODEL:-gemma4:26b-a4b-it-q8_0}" ;;

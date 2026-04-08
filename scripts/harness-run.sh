@@ -34,6 +34,15 @@ _check_harness() {
     fi
 }
 
+_check_chromadb() {
+    if ! "$HARNESS_DIR/.venv/bin/python3" -c "import chromadb" 2>/dev/null; then
+        echo "[ERREUR] chromadb non installé (requis pour les skills RAG)"
+        echo "  → mise run agent:setup -- --force"
+        echo "  ou : $HARNESS_DIR/.venv/bin/pip install chromadb"
+        exit 1
+    fi
+}
+
 _check_env() {
     local profile_name="$1"
     case "$profile_name" in
@@ -81,6 +90,7 @@ harness_run() {
     fi
 
     _check_harness
+    _check_chromadb
     _check_env "$profile_name"
     _ensure_local_model "$profile_path"
 

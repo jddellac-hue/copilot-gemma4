@@ -215,7 +215,8 @@ if [ -f "$HARNESS_DIR/.venv/bin/harness" ]; then
     if "$HARNESS_DIR/.venv/bin/python3" -c "import chromadb" 2>/dev/null; then
         ok "Extra [rag] installé"
     else
-        skip "Extra [rag] (chromadb) non installé"
+        fail "Extra [rag] (chromadb) non installé — requis pour les skills RAG"
+        echo -e "      ${YELLOW}→ mise run agent:setup -- --force${NC}"
     fi
 
     HARNESS_OK=true
