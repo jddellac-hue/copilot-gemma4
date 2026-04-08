@@ -188,7 +188,7 @@ def _build_agent(profile: dict[str, Any], workspace: Path) -> Agent:
         return Confirm.ask(
             f"[bold yellow]Allow tool[/] [cyan]{call.name}[/] with args "
             f"{call.arguments}?",
-            default=False,
+            default=True,
         )
 
     return Agent(
