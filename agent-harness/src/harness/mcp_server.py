@@ -33,9 +33,11 @@ from harness.tools.bash import build_bash_tool
 from harness.tools.concourse import ConcourseConfig, build_concourse_tools
 from harness.tools.dynatrace import DynatraceConfig, build_dynatrace_tools
 from harness.tools.filesystem import build_filesystem_tools
+from harness.tools.jacoco import build_jacoco_tool
 from harness.tools.kubernetes import KubernetesConfig, build_kubernetes_tools
 from harness.tools.rabbitmq import RabbitMQConfig, build_rabbitmq_tools
 from harness.tools.runbooks import RunbooksConfig, build_runbooks_tools
+from harness.tools.skills import SkillsConfig, build_skills_tools
 from harness.tools.sonarqube import SonarQubeConfig, build_sonarqube_tools
 
 # Filesystem and bash tools are redundant in MCP mode: the consuming client
@@ -63,6 +65,7 @@ def _build_registry(profile: dict[str, Any], workspace: Path) -> tuple[
     if profile.get("mcp", {}).get("expose_filesystem", False):
         registry.register_many(build_filesystem_tools(workspace))
         registry.register(build_bash_tool(sandbox, workspace))
+        registry.register(build_jacoco_tool(workspace))
 
     ops_tools_cfg = profile.get("ops_tools", {})
     if ops_tools_cfg.get("dynatrace", {}).get("enabled"):
@@ -87,6 +90,13 @@ def _build_registry(profile: dict[str, Any], workspace: Path) -> tuple[
         registry.register_many(
             build_concourse_tools(
                 ConcourseConfig.from_dict(ops_tools_cfg["concourse"])
+            )
+        )
+    if ops_tools_cfg.get("skills", {}).get("enabled"):
+        _repo_root = Path(__file__).resolve().parent.parent.parent.parent
+        registry.register_many(
+            build_skills_tools(
+                SkillsConfig.from_dict(ops_tools_cfg["skills"], base_dir=_repo_root)
             )
         )
     if ops_tools_cfg.get("sonarqube", {}).get("enabled"):
