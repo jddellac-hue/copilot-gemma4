@@ -98,7 +98,7 @@ DOMAIN_QUERIES = {
     'spring':     'Spring Boot autoconfiguration JPA Security Actuator',
     'sre':        'SLI SLO error budget golden signals PVH',
     'tanzu':      'BOSH Diego cf push Cloud Foundry Tanzu',
-    'template':   'Cookiecutter Streamlit uv Kustomize',
+    'cutter':     'Cookiecutter Streamlit uv Kustomize',
     'test':       'Docker Compose Behave Playwright E2E Oracle',
 }
 

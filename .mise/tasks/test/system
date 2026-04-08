@@ -408,7 +408,7 @@ if [ -d "$SKILLS_DIR" ]; then
     ok "Dossier skills/ présent ($SKILL_COUNT domaines)"
 
     # Vérifier que tous les domaines attendus sont là
-    EXPECTED_DOMAINS="angular base concourse devops dsn dynatrace java kubernetes mermaid mise oracle quarkus rabbitmq spring sre tanzu template test"
+    EXPECTED_DOMAINS="angular base concourse cutter devops dsn dynatrace java kubernetes mermaid mise oracle quarkus rabbitmq spring sre tanzu test"
     ALL_PRESENT=true
     for domain in $EXPECTED_DOMAINS; do
         if [ -d "$SKILLS_DIR/$domain" ] && [ -f "$SKILLS_DIR/$domain/SKILL.md" ]; then
@@ -465,7 +465,7 @@ tests = [
     ('Spring Boot autoconfiguration JPA','spring'),
     ('SLI SLO error budget golden',       'sre'),
     ('BOSH Diego cf push Cloud Foundry',  'tanzu'),
-    ('Cookiecutter Streamlit uv',         'template'),
+    ('Cookiecutter Streamlit uv',         'cutter'),
     ('Docker Compose Behave Playwright',  'test'),
 ]
 
