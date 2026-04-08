@@ -131,17 +131,49 @@ mise run agent:serve -- coding ~/autre-projet
 > Le serveur doit tourner en arrière-plan pendant toute la session.
 > Arrêter avec Ctrl+C.
 
-## MCP integration (Copilot agent mode)
+## Copilot + MCP (outils du harness dans le chat Copilot)
 
-Le repo fournit aussi `.github/mcp/servers.json` et `.vscode/mcp.json`
-pour exposer les **outils** du harness via MCP (sans changer le LLM).
-Dans ce mode, Copilot garde son propre modèle mais peut utiliser les
-outils du harness (filesystem, bash sandboxé, etc.).
+Le repo fournit `.github/mcp/servers.json`, `.vscode/mcp.json` et
+`.github/chatmodes/` pour exposer les **outils** du harness via MCP.
+Dans ce mode, Copilot garde son propre modèle (GPT-4o) mais peut
+utiliser les outils du harness (filesystem, bash sandboxé, Dynatrace,
+K8s, etc.).
 
-- **VS Code** : automatique. Ouvrir le workspace, passer Copilot Chat
-  en mode Agent — les outils du harness apparaissent.
-- **IntelliJ** : configurer le plugin Copilot pour lire
-  `.github/mcp/servers.json` (ou copier les entrées dans les settings).
+### Setup VS Code
+
+Automatique. Ouvrir le workspace `copilot-gemma4/`, passer Copilot
+Chat en mode Agent — les outils du harness apparaissent.
+
+### Setup IntelliJ
+
+1. Installer le plugin **GitHub Copilot** dans IntelliJ
+2. Ouvrir le workspace `copilot-gemma4/`
+3. Le plugin découvre `.github/mcp/servers.json` automatiquement
+4. Dans Copilot Chat, les chatmodes apparaissent :
+   - **Coding Agent** — filesystem + bash (pour le dev)
+   - **Ops Investigation** — Dynatrace + K8s + runbooks + Concourse
+
+> **Prérequis** : le harness doit être installé (`mise run agent:setup`).
+> Le serveur MCP est lancé automatiquement par le plugin Copilot.
+
+### Chatmodes disponibles
+
+| Chatmode | Outils | Usage |
+|----------|--------|-------|
+| Coding Agent | read/write/edit/search files, bash | Explorer, analyser, modifier du code |
+| Ops Investigation | Dynatrace, K8s, runbooks, Concourse | Investigation d'incidents en read-only |
+
+## Comparaison des deux modes
+
+| | AI Assistant + openai-serve | Copilot + MCP |
+|---|---|---|
+| **Cerveau** | Gemma local (ou Claude/Copilot) | GPT-4o (GitHub) |
+| **Outils** | Intégrés dans la boucle agent | Via MCP |
+| **Offline** | Oui (avec Gemma) | Non |
+| **Vitesse** | ~30 tok/s (CPU) | Rapide (cloud) |
+| **Coût** | Gratuit | Licence Copilot |
+| **Config** | `mise run agent:serve` + Custom LLM | Automatique (MCP discovery) |
+| **Commande** | `mise run agent:serve` | `mise run agent:mcp` (ou auto) |
 
 ## Project layout
 

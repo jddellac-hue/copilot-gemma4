@@ -1,0 +1,42 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/specification/main/schema/mcp-config.schema.json",
+  "_comment": [
+    "MCP servers for GitHub Copilot agent mode (VS Code / IntelliJ).",
+    "Copilot uses its own model but gains access to harness tools.",
+    "For Gemma local as brain, use openai-serve (see README)."
+  ],
+  "servers": {
+    "gemma4-coding": {
+      "command": "agent-harness/.venv/bin/harness",
+      "args": [
+        "mcp-serve",
+        "--profile",
+        "agent-harness/config/profiles/gemma4-coding.yaml",
+        "--workspace",
+        "${workspaceFolder}"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "no_proxy": "localhost,127.0.0.1"
+      },
+      "description": "Agent harness — filesystem & sandboxed bash tools (coding profile, ask before mutations)"
+    },
+    "gemma4-ops": {
+      "command": "agent-harness/.venv/bin/harness",
+      "args": [
+        "mcp-serve",
+        "--profile",
+        "agent-harness/config/profiles/ops.yaml",
+        "--workspace",
+        "${workspaceFolder}"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "no_proxy": "localhost,127.0.0.1",
+        "DT_API_TOKEN": "${env:DT_API_TOKEN}",
+        "CONCOURSE_TOKEN": "${env:CONCOURSE_TOKEN}"
+      },
+      "description": "Agent harness — full ops stack (Dynatrace, K8s, runbooks, Concourse). Read-only."
+    }
+  }
+}
