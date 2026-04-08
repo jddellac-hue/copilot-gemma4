@@ -6,6 +6,10 @@
 _ensure_model() {
     local MODEL="$1"
 
+    # Bypass corporate proxy for localhost (Ollama)
+    export no_proxy="${no_proxy:+$no_proxy,}localhost,127.0.0.1"
+    export NO_PROXY="$no_proxy"
+
     # 1. Ollama tourne ?
     if ! curl -sf http://localhost:11434/api/ps > /dev/null 2>&1; then
         echo "[...] Démarrage d'ollama..."

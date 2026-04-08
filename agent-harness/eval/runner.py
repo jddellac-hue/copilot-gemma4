@@ -150,9 +150,9 @@ def run_suite(
         )
         logger.info("running task %s", task_id)
 
-        # Suppress noisy warnings (e.g. sandbox fallback) during task run
+        # Suppress noisy log output (sandbox fallback, model errors)
         prev_level = logging.root.level
-        logging.root.setLevel(logging.ERROR)
+        logging.root.setLevel(logging.CRITICAL)
         try:
             result = _run_one_task(task, profile)
             results.append(result)

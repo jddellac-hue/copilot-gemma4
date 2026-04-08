@@ -73,6 +73,13 @@ class OllamaClient:
         self.endpoint = endpoint
         self.temperature = temperature
         self.num_ctx = num_ctx
+        # Bypass corporate proxies for localhost connections
+        import os
+
+        no_proxy = os.environ.get("no_proxy", "")
+        if "localhost" not in no_proxy:
+            os.environ["no_proxy"] = f"{no_proxy},localhost,127.0.0.1" if no_proxy else "localhost,127.0.0.1"
+            os.environ["NO_PROXY"] = os.environ["no_proxy"]
         self._client = ollama.Client(host=endpoint)
 
     def chat(
