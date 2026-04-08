@@ -138,22 +138,28 @@ def run_suite(
     task_files = sorted(tasks_dir.glob("*.yaml"))
     results: list[dict[str, Any]] = []
 
-    for tf in task_files:
+    print(f"\n=== Running {len(task_files)} eval tasks ===", flush=True)
+    for idx, tf in enumerate(task_files, 1):
         with tf.open(encoding="utf-8") as f:
             task = yaml.safe_load(f)
-        logger.info("running task %s", task["id"])
+        task_id = task["id"]
+        category = task.get("category", "?")
+        print(f"  [{idx}/{len(task_files)}] {task_id} ({category})...", end="", flush=True)
+        logger.info("running task %s", task_id)
         try:
-            results.append(_run_one_task(task, profile))
+            result = _run_one_task(task, profile)
+            results.append(result)
         except Exception as exc:  # noqa: BLE001
-            results.append(
-                {
-                    "id": task["id"],
-                    "category": task.get("category", "uncategorised"),
-                    "ok": False,
-                    "detail": f"runner crashed: {exc}",
-                    "duration_s": 0,
-                }
-            )
+            result = {
+                "id": task_id,
+                "category": category,
+                "ok": False,
+                "detail": f"runner crashed: {exc}",
+                "duration_s": 0,
+            }
+            results.append(result)
+        marker = "✓" if result["ok"] else "✗"
+        print(f" {marker} {result['duration_s']}s", flush=True)
 
     passed = sum(1 for r in results if r["ok"])
     failed = len(results) - passed
