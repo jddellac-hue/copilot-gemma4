@@ -60,9 +60,11 @@ def _build_registry(profile: dict[str, Any], workspace: Path) -> tuple[
     )
     registry = ToolRegistry()
 
-    # Filesystem + bash: only when the profile explicitly opts in.
-    # In MCP mode the client already has its own Read/Write/Edit/Glob/Bash.
-    if profile.get("mcp", {}).get("expose_filesystem", False):
+    # Filesystem + bash + jacoco: exposed by default in MCP mode.
+    # Copilot and other MCP clients need these to be useful.
+    # Set mcp.expose_filesystem: false to disable (e.g. if the client
+    # already provides its own, like Claude Code or Cline).
+    if profile.get("mcp", {}).get("expose_filesystem", True):
         registry.register_many(build_filesystem_tools(workspace))
         registry.register(build_bash_tool(sandbox, workspace))
         registry.register(build_jacoco_tool(workspace))
