@@ -43,8 +43,9 @@ echo ""
 import sys, json, os
 from pathlib import Path
 
+import time
 sys.path.insert(0, '$HARNESS_DIR/src')
-from harness.tools.skills import SkillsConfig, build_skills_tools
+from harness.tools.skills import SkillsConfig, build_skills_tools, _index_skills
 
 skills_path = Path('$SKILLS_DIR')
 config = SkillsConfig(
@@ -56,13 +57,27 @@ config = SkillsConfig(
     chunk_overlap=100,
     max_results=5,
 )
+
+print('[...] Indexation en cours...')
+t0 = time.time()
 tools = build_skills_tools(config)
+elapsed = time.time() - t0
+
 if not tools:
     print('[ERREUR] build_skills_tools a retourné une liste vide')
     sys.exit(1)
 
+# Compter les chunks dans la collection
+try:
+    import chromadb
+    client = chromadb.PersistentClient(path='$PERSIST_DIR')
+    collection = client.get_collection('agent_skills')
+    chunk_count = collection.count()
+except Exception:
+    chunk_count = '?'
+
 search = tools[0]
-print('[OK] Index reconstruit')
+print(f'[OK] Index reconstruit : {chunk_count} chunks en {elapsed:.1f}s')
 print()
 
 # Requêtes de test par domaine — une par skill détecté
