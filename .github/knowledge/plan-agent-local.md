@@ -1,119 +1,190 @@
-# Plan : Agents locaux Gemma 4 avec agent-harness
+# Plan : Agents locaux — pseudo-copilot
 
 ## Objectif
 
-Avoir deux agents locaux autonomes (coding + doc) capables d'exécuter des tâches dans un repo, avec tool calling, sandboxing, et audit — le tout offline sur notre machine.
+Avoir un harness agentique multi-provider (Gemma local, Claude, Copilot)
+capable d'exécuter des tâches dans n'importe quel repo, avec tool calling,
+sandboxing, audit, et intégration IDE — le tout pilotable depuis un seul
+repo (`copilot-gemma4/`).
 
-## Fait (conversation du 2026-04-07)
+## Fait
 
-- [x] Ollama installé et opérationnel
-- [x] Modèles Gemma 4 installés (26b-a4b-it-q8_0, 26b, e4b, 31b)
-- [x] 31b-it-q8_0 testé et **abandonné** (trop lent en CPU-only, 100% timeout)
-- [x] Benchmarks réalisés sur 4 modèles (voir benchmarks/)
-- [x] 20 tasks mise créées (prereqs, model, test, tui, chat, agent)
-- [x] agent-harness installé, profils gemma4-coding et gemma4-doc créés
-- [x] Tool calling validé (Gemma 4 26B appelle les outils nativement)
-- [x] Chat interactif avec streaming (scripts/chat.py)
-- [x] ensure-model.sh : vérif auto ollama + modèle + preload
-- [x] Repo GitHub public : jddellac-hue/copilot-gemma4
-- [x] KB Gemma 4 dans .github/knowledge/gemma4/
+### Infrastructure (2026-04-07)
 
-## Phase 1-4 : FAIT
+- [x] Ollama installé et opérationnel sur 2 machines
+- [x] Modèles Gemma 4 installés (26b-a4b-it-q8_0, 26b, e4b)
+- [x] gemma:7b-instruct installé (profils dev/ci/ops)
+- [x] 31b-it-q8_0 testé et **abandonné** (trop lent en CPU-only)
+- [x] Benchmarks réalisés sur 4 modèles
+- [x] 26+ tasks mise créées
+- [x] Repo GitHub : jddellac-hue/copilot-gemma4
 
-Voir le README du repo pour la doc complète.
+### Harness agentique (2026-04-07 → 08)
 
-## Phase 5 : Chat amélioré avec tools (À FAIRE)
+- [x] Boucle ReAct (agent.py) avec budget tokens, timeout, détection répétition
+- [x] Tool calling Gemma 4 validé (natif + fallback regex `<tool_call>`)
+- [x] Sandbox bubblewrap avec fallback subprocess automatique (AppArmor)
+- [x] Permissions 3 états (allow/ask/deny) + audit JSON-Lines
+- [x] Mémoire 2 tiers (working + compaction)
+- [x] Observabilité OpenTelemetry (optionnel)
+- [x] Serveur MCP (expose les outils aux IDE)
 
-**Quoi :** Passer du chat basique (scripts/chat.py, texte pur) au chat agentique (harness).
+### Multi-provider (2026-04-08)
 
-Le chat actuel n'a pas d'outils. Pour avoir un chat qui peut lire/écrire des fichiers :
-- Option A : ajouter un mode interactif à `harness run`
-- Option B : wrapper le harness en boucle dans scripts/chat.py
-- Option C : utiliser le serveur MCP + un client MCP interactif
+- [x] Protocol `ModelClient` : interface commune pour tous les providers
+- [x] `OllamaClient` : Gemma local (CPU-only, offline, gratuit)
+- [x] `AnthropicClient` : Claude Sonnet (en ligne, rapide)
+- [x] `OpenAIClient` : GitHub Copilot / Models API, OpenAI, Azure (en ligne)
+- [x] 11 profils YAML (dev, ci, gemma4-coding, gemma4-doc, claude, copilot, ops, prod-ro + CI variants)
+- [x] `budget_multiplier` dans l'eval runner pour les gros modèles
 
-## Phase 6 : Observabilité (À FAIRE)
+### Outils intégrés (savoirs-faire de l'agent)
 
-**Quoi :** Brancher l'OpenTelemetry pour tracer les sessions agent.
+L'agent ne fait pas que "lire et écrire des fichiers". Il embarque des
+outils spécialisés qui lui donnent des compétences métier :
 
-Options :
-- Jaeger local (`docker run jaegertracing/all-in-one`)
-- Simple logs JSON (déjà en partie via l'audit log du harness)
+| Outil | Savoir-faire | Profils |
+|-------|-------------|---------|
+| `read_file` / `write_file` / `edit_file` | Lire, écrire, modifier du code | Tous |
+| `list_dir` / `search_files` | Explorer un projet | Tous |
+| `bash` (sandboxé) | Exécuter des commandes, lancer des tests | coding, dev, ops |
+| `dynatrace_dql` | Requêtes DQL sur Grail (métriques, logs, traces) | ops |
+| `dynatrace_problems` | Lister les problèmes ouverts/récents | ops |
+| `dynatrace_entity_search` | Chercher des entités monitorées | ops |
+| `kubectl_get` / `describe` / `logs` | Investigation Kubernetes (read-only, contexte verrouillé) | ops |
+| `search_runbooks` | Recherche sémantique RAG dans les runbooks markdown | ops |
+| `concourse_pipelines` / `builds` / `build_logs` | Suivi CI Concourse (pipelines, builds, logs SSE) | ops |
 
-## Phase 7 : Intégration MCP dans IDE (À FAIRE)
+> Les outils ops sont opt-in (activés par `ops_tools.<nom>.enabled: true`
+> dans le profil YAML). Les tokens viennent de variables d'environnement,
+> jamais du code.
 
-**Quoi :** Connecter l'agent comme MCP server dans VS Code / Copilot / Claude Code.
+### Intégration IDE (2026-04-08)
 
-```bash
-mise run agent:mcp -- coding
-```
+- [x] `openai-serve` : endpoint HTTP OpenAI-compatible wrappant la boucle agent
+- [x] IntelliJ AI Assistant : Gemma local comme cerveau dans le chat IDE
+- [x] Copilot + MCP : outils du harness dans le chat Copilot (GPT-4o comme cerveau)
+- [x] Chatmodes : coding-agent, ops-investigation
+- [x] `.github/mcp/servers.json` + `.vscode/mcp.json` à la racine du repo
+- [x] Config auto-discovery pour IntelliJ et VS Code
 
-Config VS Code settings.json :
-```json
-{
-  "mcp.servers": {
-    "gemma4-coding": {
-      "command": "<chemin>/agent-harness/.venv/bin/harness",
-      "args": ["mcp-serve", "--profile", "<chemin>/gemma4-coding.yaml", "--workspace", "."]
-    }
-  }
-}
-```
+### Tests et qualité (2026-04-08)
 
-## Phase 8 : Eval complète (À FAIRE)
+- [x] 54 tests pytest (unit + intégration)
+- [x] 117 tests mise tasks (existence, permissions, descriptions, usage, cohérence)
+- [x] 38 tests système (imports, sandbox, permissions, filesystem, eval tasks)
+- [x] 7 tâches d'eval (fundamentals, coding, ops, security) — 7/7 avec Gemma 4
+- [x] Task `verify` : vérification complète en une commande
+- [x] Proxy corporate géré (no_proxy dans mise.toml)
+- [x] ensure-model.sh : téléchargement automatique des modèles manquants
 
-Lancer les 7 tâches d'eval du harness avec Gemma 4 et documenter les résultats :
-```bash
-mise run agent:eval -- coding
-```
+### Documentation (2026-04-08)
 
-Tâches d'eval : read-and-report, search-by-pattern, edit-file, run-tests, fix-failing-test, ops-log-investigation, redteam-prompt-injection.
+- [x] README multi-provider avec quick start 3 options
+- [x] Section workspace (agent sur n'importe quel repo)
+- [x] Section IntelliJ (AI Assistant + openai-serve)
+- [x] Section Copilot + MCP (outils via chatmodes)
+- [x] Tableau comparatif des deux modes IDE
+- [x] CLAUDE.md, copilot-instructions.md, eval README, design KB à jour
+- [x] KB Gemma 4 dans le repo (.github/knowledge/)
 
-## Décisions prises
+## À faire
 
-1. **Modèle** : `gemma4:26b-a4b-it-q8_0` pour les deux agents (coding + doc). Le 31B est trop lent en CPU-only.
-2. **Différenciation** : par la config (temperature, permissions), pas par le modèle.
-3. **Venv séparé** : agent-harness a son propre .venv (dans .gitignore, à créer via `mise run agent:setup`)
-4. **Thinking mode** : gardé (meilleure qualité), mais cause des timeouts sur les prompts complexes (300s coding, 180s doc)
+### Court terme
 
-## Décisions à prendre
+- [ ] Tester l'eval avec Claude (quand crédits rechargés)
+- [ ] Tester l'eval avec Copilot (GITHUB_TOKEN avec scope models)
+- [ ] Tester openai-serve + IntelliJ AI Assistant en session réelle
+- [ ] Tester Copilot + MCP chatmodes dans IntelliJ en session réelle
+- [ ] Explorer le GPU (RTX A500 sur ijde3720) pour accélérer l'inférence
 
-1. **Faut-il merger** agent-harness dans copilot-gemma4 ou le garder comme sous-dossier ?
-2. **Context window** : 32K suffit-il pour les tâches de code réelles ou faut-il monter ?
-3. **Chat agentique** : quelle option pour Phase 5 (A, B, ou C) ?
+### Moyen terme
 
-## Architecture du projet
+- [ ] Chat interactif agentique (boucle multi-turn dans le terminal)
+- [ ] Long-term memory complète (RAG sur les notes persistées)
+- [ ] Observabilité branchée sur Dynatrace ou Jaeger
+- [ ] Streaming des réponses dans openai-serve (SSE)
+- [ ] Prompt tuning pour les quirks spécifiques de Gemma 4
+
+### Décisions prises
+
+1. **Modèle principal** : `gemma4:26b-a4b-it-q8_0` (MoE, 3.8B actifs, ~30 tok/s CPU)
+2. **Modèle léger** : `gemma:7b-instruct` (profils dev/ci/ops)
+3. **31B Dense abandonné** : 100% timeout en CPU-only
+4. **Différenciation par la config** (temperature, permissions), pas par le modèle
+5. **Multi-provider** : un seul harness, 3 backends (Ollama, Anthropic, OpenAI)
+6. **Sandbox** : bubblewrap préféré, fallback subprocess automatique
+7. **Outils ops opt-in** : activés par profil, pas globalement
+8. **Deux modes IDE** : AI Assistant (Gemma cerveau) + Copilot MCP (outils)
+
+### Architecture
 
 ```
 copilot-gemma4/
-├── mise.toml                    # Config centrale (modèles par défaut, env vars)
-├── .gitignore
-├── README.md                    # Documentation complète
+├── .github/
+│   ├── copilot-instructions.md       ← instructions projet
+│   ├── mcp/servers.json              ← MCP auto-discovery (IntelliJ/VS Code)
+│   ├── chatmodes/                    ← coding-agent, ops-investigation
+│   └── knowledge/                    ← KB Gemma 4, plan projet
+├── .vscode/mcp.json                  ← MCP auto-discovery (VS Code)
+├── mise.toml                         ← env vars, no_proxy
 ├── scripts/
-│   ├── chat.py                  # Chat interactif streaming
-│   └── ensure-model.sh          # Vérif auto ollama + modèle + preload
-├── .mise/
-│   ├── benchmarks/              # Résultats de benchmarks
-│   └── tasks/
-│       ├── prereqs/install|uninstall
-│       ├── model/evaluate|install|uninstall|list|start|stop
-│       ├── test/bench|verify
-│       ├── tui/bench|install
-│       ├── chat/coding|doc|general
-│       ├── agent/coding|doc|mcp|eval|setup
-│       └── clean
-└── agent-harness/               # Harness agentique (sous-dossier)
-    ├── .venv/                   # (gitignored, créé via agent:setup)
-    ├── config/profiles/
-    │   ├── gemma4-coding.yaml   # 26B MoE Q8, temp 0.2
-    │   └── gemma4-doc.yaml      # 26B MoE Q8, temp 0.3
-    ├── src/harness/             # Code source du harness
-    ├── eval/tasks/              # 7 tâches d'évaluation
-    └── tests/
+│   ├── chat.py                       ← chat interactif streaming
+│   └── ensure-model.sh               ← auto-install modèles Ollama
+├── .mise/tasks/
+│   ├── agent/setup|coding|doc|claude|copilot|eval|mcp|serve
+│   ├── chat/coding|doc|general
+│   ├── model/install|uninstall|list|start|stop|evaluate
+│   ├── test/tasks|system|verify|bench
+│   ├── tui/bench|install
+│   ├── prereqs/install|uninstall
+│   ├── verify                        ← vérification complète
+│   └── clean
+└── agent-harness/
+    ├── src/harness/
+    │   ├── agent.py                  ← boucle ReAct
+    │   ├── model.py                  ← Protocol ModelClient + OllamaClient
+    │   ├── anthropic_client.py       ← AnthropicClient
+    │   ├── openai_client.py          ← OpenAIClient (Copilot, OpenAI, Azure)
+    │   ├── openai_server.py          ← endpoint HTTP /v1/chat/completions
+    │   ├── mcp_server.py             ← serveur MCP (outils pour IDE)
+    │   ├── memory.py                 ← working + compaction
+    │   ├── permissions.py            ← allow/ask/deny + audit
+    │   ├── sandbox.py                ← bubblewrap + fallback subprocess
+    │   ├── observability.py          ← OpenTelemetry
+    │   └── tools/                    ← filesystem, bash, dynatrace, k8s, runbooks, concourse
+    ├── config/profiles/              ← 11 profils YAML
+    ├── eval/tasks/                   ← 7 tâches d'évaluation
+    ├── tests/                        ← 54 tests (unit + intégration)
+    └── docs/kb/                      ← design KB (1000+ lignes)
 ```
 
-## Machines connues
+### Machines connues
 
-| Machine | CPU | RAM | GPU | Modèle recommandé |
-|---------|-----|-----|-----|--------------------|
-| jd (pseudo-copilot) | Ryzen 9 5900HX 16t | 62 Go | Vega iGPU | 26b-a4b-it-q8_0 (~30 tok/s) |
-| ijde3720 | ? | ? | RTX A500 | 26b-a4b-it-q8_0 (+ GPU possible) |
+| Machine | CPU | RAM | GPU | Modèle recommandé | Status |
+|---------|-----|-----|-----|--------------------|--------|
+| jd (pseudo-copilot) | Ryzen 9 5900HX 16t | 62 Go | Vega iGPU | 26b-a4b-it-q8_0 (~30 tok/s) | ✓ Opérationnel |
+| ijde3720 (entreprise) | ? | 62 Go | RTX A500 | 26b-a4b-it-q8_0 (GPU à explorer) | ✓ Opérationnel |
+
+### Commandes clés
+
+```bash
+# Setup complet (première fois)
+mise run agent:setup
+
+# Vérification complète
+mise run verify -- gemma4
+
+# Agents terminal
+mise run agent:coding -- "tâche" ~/projet
+mise run agent:claude -- "tâche"
+
+# Serveur pour IntelliJ
+mise run agent:serve
+
+# Évaluations
+mise run agent:eval -- gemma4
+
+# Toutes les commandes
+mise task ls
+```
