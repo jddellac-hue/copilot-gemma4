@@ -103,7 +103,7 @@ def _init_rag():
             ),
             chunk_size=800,
             chunk_overlap=100,
-            max_results=3,
+            max_results=5,
         )
         tools = build_skills_tools(config)
         if tools:
@@ -120,7 +120,7 @@ def _search_skills(query):
     if not _skills_tool:
         return ""
     try:
-        result = _skills_tool.invoke({"query": query, "top_k": 3})
+        result = _skills_tool.invoke({"query": query, "top_k": 5})
         if result.ok and "no skill matched" not in result.content:
             return result.content
     except Exception:
@@ -262,7 +262,7 @@ def main():
     global _rag_enabled
     print(f"{DIM}Skills RAG...{RESET}", end=" ", flush=True)
     if _init_rag():
-        print(f"{GREEN}activé{RESET} {DIM}(3 chunks par requête, /rag off pour désactiver){RESET}")
+        print(f"{GREEN}activé{RESET} {DIM}(5 chunks par requête, /rag off pour désactiver){RESET}")
     else:
         print(f"{RED}désactivé{RESET}")
         print(f"  {YELLOW}→ chromadb non installé. Installez avec : mise run agent:setup -- --force{RESET}")
