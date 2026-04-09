@@ -427,9 +427,35 @@ Prérequis : `pip install agent-harness[rag]` (inclus dans `agent:setup`).
 
 ### Ajouter un nouveau skill
 
-1. Créer `skills/<domain>/SKILL.md`
+1. Créer `skills/<domain>/` avec au moins un fichier `.md`  
+   (`SKILL.md` recommandé, mais tout `.md` est accepté)
 2. Optionnel : `skills/<domain>/references/*.md`, `versions/*.md`
-3. Relancer l'agent → Chroma ré-indexe automatiquement les nouveaux fichiers
+3. Reindexer :
+
+```bash
+mise run skills:reindex
+```
+
+### Indexer un dossier externe
+
+N'importe quelle arborescence de `.md` peut être indexée dans la même
+base vectorielle — chaque sous-dossier devient un domaine RAG.
+
+```bash
+# Dossier à côté du repo (ex: base de connaissances projet)
+mise run skills:reindex -- ../copilot-ft-knowledge
+
+# Plusieurs dossiers en même temps
+mise run skills:reindex -- ../copilot-ft-knowledge ../docs ../wiki
+
+# Forcer un rebuild complet
+mise run skills:reindex -- --force ../copilot-ft-knowledge
+```
+
+Le dossier externe n'a pas besoin de suivre la structure `skills/` — il
+suffit que des fichiers `.md` existent dans ses sous-dossiers.
+`search_rag` trouvera automatiquement les résultats de tous les domaines
+indexés.
 
 ## License
 
